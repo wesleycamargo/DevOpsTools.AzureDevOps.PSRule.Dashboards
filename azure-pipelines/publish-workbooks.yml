@@ -1,0 +1,48 @@
+name: PSRule Manual Assessment and Workbook Publishing
+trigger: none
+pr: none
+
+variables:
+  PSRuleReportReady: 'false'
+
+resources:
+  repositories:
+    - repository: rules
+      type: github
+      endpoint: github.com_wesleycamargo
+      name: wesleycamargo/PSRule.Rules.AzureDevOps
+      ref: refs/heads/automation/psrule-assessment
+
+pool:
+  name: AI-Pool
+
+steps:
+  - checkout: self
+    path: s/dashboards
+  - checkout: rules
+    path: s/rules
+  - task: AzureCLI@2
+    displayName: Assess organization and publish workbook results
+    inputs:
+      azureSubscription: psrule-azure
+      scriptType: pscore
+      scriptLocation: scriptPath
+      scriptPath: $(Pipeline.Workspace)/s/dashboards/src/scripts/Invoke-PSRuleWorkbookAssessment.ps1
+      arguments: >-
+        -ModuleManifestPath "$(Pipeline.Workspace)/s/rules/src/PSRule.Rules.AzureDevOps/PSRule.Rules.AzureDevOps.psd1"
+      visibleAzLogin: false
+      useGlobalConfig: false
+  - task: PublishBuildArtifacts@1
+    displayName: Publish PSRule reports
+    condition: succeededOrFailed()
+    inputs:
+      PathtoPublish: $(Build.ArtifactStagingDirectory)
+      ArtifactName: psrule-results
+      publishLocation: Container
+  - task: PublishHtmlReport@1
+    displayName: Publish PSRule Dashboard tab
+    condition: and(succeededOrFailed(), eq(variables['PSRuleReportReady'], 'true'))
+    inputs:
+      reportDir: $(Build.ArtifactStagingDirectory)/psrule-dashboard.html
+      tabName: PSRule Dashboard
+      useFilenameTabs: false

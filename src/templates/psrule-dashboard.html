@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PSRule Dashboard</title>
+<style>
+:root { color-scheme: light dark; --bg: #f5f7fb; --panel: #fff; --text: #17243b; --muted: #53627a; --border: #dce2ec; --fail: #c33045; --pass: #178366; --accent: #2865d0; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+main { max-width: 1440px; margin: auto; }
+h1 { margin: 0; font-size: 28px; } h2 { margin: 0 0 16px; font-size: 18px; }
+p { color: var(--muted); } header { margin-bottom: 24px; }
+.cards, .charts { display: grid; gap: 16px; margin-bottom: 20px; }
+.cards { grid-template-columns: repeat(5, minmax(0, 1fr)); } .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.card, .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+.card span { display: block; color: var(--muted); } .card strong { display: block; font-size: 30px; }
+.failed { color: var(--fail); } .passed { color: var(--pass); }
+.filters { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+label { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 150px; }
+select, input, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 8px; }
+input { min-width: 0; } button { cursor: pointer; } button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); }
+.bar-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(60px, 1fr) 45px; align-items: center; gap: 12px; margin: 10px 0; }
+.bar-label { padding: 0; border: 0; text-align: left; overflow-wrap: anywhere; }
+.bar-track { height: 12px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.bar { height: 100%; background: var(--fail); } .bar-count { text-align: right; }
+.table-scroll { overflow-x: auto; } table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+th { color: var(--muted); font-weight: 600; } td small { display: block; color: var(--muted); }
+.pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 16px; }
+button:disabled { opacity: .5; cursor: default; } .empty { color: var(--muted); }
+@media (prefers-color-scheme: dark) { :root { --bg: #111827; --panel: #1c2637; --text: #e8eef8; --muted: #b0bdd1; --border: #344158; --fail: #fb7185; --pass: #56d9ad; --accent: #87b0ff; } }
+@media (max-width: 760px) { body { padding: 16px; } .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<header><h1>PSRule Dashboard</h1><p id="run-info"></p><p>Assessment snapshot. Check the pipeline status for workbook publication errors.</p></header>
+<noscript>This interactive report requires JavaScript. The Markdown summary contains the assessment totals.</noscript>
+<section class="filters" aria-label="Filter assessment results">
+<label>Project<select id="project"><option value="">All projects</option></select></label>
+<label>Outcome<select id="outcome"><option value="">All outcomes</option></select></label>
+<label>Severity<select id="severity"><option value="">All severities</option></select></label>
+<label>Search<input id="search" type="search" placeholder="Rule or resource"></label>
+<button id="reset" type="button">Reset filters</button>
+</section>
+<section class="cards" aria-label="Assessment totals">
+<div class="card"><span>Total checkpoints</span><strong id="total"></strong></div>
+<div class="card"><span>Passed checkpoints</span><strong id="passed" class="passed"></strong></div>
+<div class="card"><span>Failed checkpoints</span><strong id="failed" class="failed"></strong></div>
+<div class="card"><span>Rules checked</span><strong id="rules"></strong></div>
+<div class="card"><span>Resources checked</span><strong id="resources"></strong></div>
+</section>
+<section class="charts" aria-label="Failure breakdown">
+<div class="panel"><h2>Failures by rule</h2><div id="rule-chart"></div></div>
+<div class="panel"><h2>Failures by resource</h2><div id="resource-chart"></div></div>
+</section>
+<section class="panel"><h2>Findings</h2><p id="finding-count" aria-live="polite"></p>
+<div class="table-scroll"><table><thead><tr><th>Outcome</th><th>Severity</th><th>Project</th><th>Rule</th><th>Resource</th></tr></thead><tbody id="findings"></tbody></table></div>
+<div class="pagination"><button id="previous" type="button">Previous</button><span id="page-info"></span><button id="next" type="button">Next</button></div>
+</section>
+</main>
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+<script>
+'use strict';
+const report = JSON.parse(document.getElementById('report-data').textContent);
+const results = report.results;
+const controls = ['project', 'outcome', 'severity', 'search'].map(id => document.getElementById(id));
+let page = 0;
+let ruleFilter = null;
+let resourceFilter = null;
+const pageSize = 50;
+document.getElementById('run-info').textContent = `${report.organization} · Run ${report.runId} · ${report.timestamp}`;
+for (const field of ['project', 'outcome', 'severity']) {
+    const select = document.getElementById(field);
+    for (const value of [...new Set(results.map(row => row[field]))].sort()) {
+        const option = document.createElement('option'); option.value = value; option.textContent = value; select.append(option);
+    }
+}
+function resourceKey(row) { return JSON.stringify([row.project, row.targetType, row.targetName]); }
+function chart(id, rows, field) {
+    const container = document.getElementById(id); container.replaceChildren();
+    const groups = new Map();
+    for (const row of rows.filter(row => row.outcome === 'Fail')) {
+        const key = field === 'ruleName' ? row.ruleName : resourceKey(row);
+        const group = groups.get(key) || { count: 0, label: field === 'ruleName' ? row.ruleName : `${row.project} / ${row.resourceName}` };
+        group.count++; groups.set(key, group);
+    }
+    const ranked = [...groups.entries()].sort((a, b) => b[1].count - a[1].count || a[1].label.localeCompare(b[1].label)).slice(0, 10);
+    if (!ranked.length) { const message = document.createElement('p'); message.className = 'empty'; message.textContent = 'No failures in this selection.'; container.append(message); return; }
+    for (const [key, group] of ranked) {
+        const row = document.createElement('div'); row.className = 'bar-row';
+        const label = document.createElement('button'); label.type = 'button'; label.className = 'bar-label'; label.textContent = group.label;
+        label.title = `Show findings for ${group.label}`;
+        label.addEventListener('click', () => { if (field === 'ruleName') ruleFilter = key; else resourceFilter = key; page = 0; render(); });
+        const track = document.createElement('div'); track.className = 'bar-track'; track.setAttribute('aria-hidden', 'true');
+        const bar = document.createElement('div'); bar.className = 'bar'; bar.style.width = `${100 * group.count / ranked[0][1].count}%`; track.append(bar);
+        const count = document.createElement('span'); count.className = 'bar-count'; count.textContent = group.count;
+        row.append(label, track, count); container.append(row);
+    }
+}
+function render() {
+    const [project, outcome, severity, search] = controls.map(control => control.value);
+    const query = search.trim().toLocaleLowerCase();
+    const selected = results.filter(row => (!project || row.project === project) && (!outcome || row.outcome === outcome) && (!severity || row.severity === severity) && (!ruleFilter || row.ruleName === ruleFilter) && (!resourceFilter || resourceKey(row) === resourceFilter) && (!query || [row.ruleName, row.displayName, row.targetName, row.resourceName, row.targetType, row.project].some(value => value.toLocaleLowerCase().includes(query))));
+    for (const [id, count] of Object.entries({ total: selected.length, passed: selected.filter(row => row.outcome === 'Pass').length, failed: selected.filter(row => row.outcome === 'Fail').length, rules: new Set(selected.map(row => row.ruleName)).size, resources: new Set(selected.map(resourceKey)).size })) document.getElementById(id).textContent = count;
+    chart('rule-chart', selected, 'ruleName'); chart('resource-chart', selected, 'resourceName');
+    const filters = [ruleFilter && `Rule: ${ruleFilter}`, resourceFilter && `Resource: ${JSON.parse(resourceFilter)[2]}`].filter(Boolean);
+    document.getElementById('finding-count').textContent = `${selected.length} checkpoints${filters.length ? ' · ' + filters.join(' · ') + ' · Reset filters to clear drill-down' : ''}. Charts show up to 10 groups; all findings are available below.`;
+    const tbody = document.getElementById('findings'); tbody.replaceChildren();
+    const pages = Math.max(1, Math.ceil(selected.length / pageSize)); page = Math.min(page, pages - 1);
+    for (const row of selected.slice(page * pageSize, (page + 1) * pageSize)) {
+        const tr = document.createElement('tr');
+        for (const field of ['outcome', 'severity', 'project', 'ruleName', 'resourceName']) {
+            const td = document.createElement('td'); td.textContent = row[field];
+            if (field === 'outcome') td.className = row.outcome === 'Fail' ? 'failed' : row.outcome === 'Pass' ? 'passed' : '';
+            if (field === 'ruleName' || field === 'resourceName') { const detail = document.createElement('small'); detail.textContent = field === 'ruleName' ? row.displayName : `${row.targetType} · ${row.targetName}`; td.append(detail); }
+            tr.append(td);
+        }
+        tbody.append(tr);
+    }
+    if (!selected.length) { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 5; td.textContent = 'No results match these filters.'; tr.append(td); tbody.append(tr); }
+    document.getElementById('page-info').textContent = `Page ${page + 1} of ${pages}`;
+    document.getElementById('previous').disabled = page === 0; document.getElementById('next').disabled = page === pages - 1;
+}
+for (const control of controls) control.addEventListener('input', () => { page = 0; render(); });
+document.getElementById('reset').addEventListener('click', () => { controls.forEach(control => control.value = ''); ruleFilter = null; resourceFilter = null; page = 0; render(); });
+document.getElementById('previous').addEventListener('click', () => { page--; render(); });
+document.getElementById('next').addEventListener('click', () => { page++; render(); });
+render();
+</script>
+</body>
+</html>

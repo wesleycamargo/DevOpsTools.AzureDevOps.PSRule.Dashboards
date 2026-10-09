@@ -17,6 +17,44 @@ the results.
 The following steps will guide you through deploying the log analytics workspace and
 workbooks to your Azure subscription.
 
+### Pipeline run dashboard
+
+The manual assessment pipeline also generates `psrule-dashboard.html` and
+`psrule-summary.md` directly from the detailed assessment results. The dashboard
+contains totals, failure charts by rule and resource, and a findings table with
+project, outcome, and severity filters, text search, and chart drill-downs.
+It is a snapshot of one assessment run; historical trends remain in the Azure
+Monitor workbooks.
+
+An organization administrator must install
+[BlakYaks HTML Reports](https://marketplace.visualstudio.com/items?itemName=blakyaks.azure-pipelines-html-reports)
+in the Azure DevOps organization before running the updated pipeline. Its
+`PublishHtmlReport@1` task displays the dashboard on the pipeline run's Reports
+page. The Markdown summary appears on the run's Extensions tab through
+[`task.uploadsummary`](https://learn.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands?view=azure-devops#uploadsummary-add-some-markdown-content-to-the-build-summary).
+The pipeline uses the `PSRuleReportReady` variable to publish the HTML tab only
+after a valid report has been generated.
+
+The `psrule-results` artifact retains the HTML, Markdown, and existing SARIF
+report even when subsequent workbook ingestion fails. Download the artifact
+and open `psrule-dashboard.html` in a browser to use the dashboard offline;
+all styles, scripts, and report data are embedded in the file. Readers need
+permission to view the pipeline run and its artifacts, rather than additional
+Log Analytics access. Downloaded reports contain assessment findings, so share
+them with the same audience as the run. Reports follow the pipeline's run and
+artifact retention policy; retain the run or download its artifact to keep a
+snapshot longer. Check pipeline status separately for ingestion failures.
+An assessment with no results or rule execution errors produces no dashboard.
+
+From this repository, run the offline PowerShell tests with
+`Invoke-Pester ./tests -Output Detailed`. For browser checks, install Playwright
+in a temporary directory, install its Chromium browser, set `NODE_PATH` to that
+directory's `node_modules`, and run `node tests/PipelineReport.Browser.Tests.cjs`.
+Chromium also requires the host libraries listed by `playwright install-deps chromium`.
+The browser checks exercise the report in an iframe, matching the viewer's
+rendering method. A live run must also confirm the Reports page and Markdown
+summary in Azure DevOps.
+
 ### Prerequisites
 
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest) version 2.20.0 or later.
