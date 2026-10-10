@@ -11,7 +11,7 @@ resources:
       type: github
       endpoint: github.com_wesleycamargo
       name: wesleycamargo/PSRule.Rules.AzureDevOps
-      ref: refs/heads/automation/psrule-assessment
+      ref: refs/heads/main
 
 pool:
   name: AI-Pool

@@ -17,7 +17,7 @@ It does not establish the current state of deployed Azure resources or remote br
 
 `azure-pipelines/publish-workbooks.yml` disables push and PR triggers and uses the self-hosted `AI-Pool`.
 It checks out dashboards under `s/dashboards` and rules under `s/rules`.
-The rule repository resource selects `automation/psrule-assessment` through the configured GitHub endpoint.
+The rule repository resource selects `main` through the configured GitHub endpoint.
 The Azure CLI task uses the `psrule-azure` service connection.
 
 ```mermaid
