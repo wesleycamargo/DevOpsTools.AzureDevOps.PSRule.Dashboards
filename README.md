@@ -55,6 +55,9 @@ The browser checks exercise the report in an iframe, matching the viewer's
 rendering method. A live run must also confirm the Reports page and Markdown
 summary in Azure DevOps.
 
+See [dashboard architecture](docs/architecture.md) for assessment flow, pipeline
+structure, ingestion contracts, and report publication.
+
 ### Prerequisites
 
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest) version 2.20.0 or later.
