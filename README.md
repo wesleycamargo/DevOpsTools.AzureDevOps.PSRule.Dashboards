@@ -19,6 +19,12 @@ workbooks to your Azure subscription.
 
 ### Pipeline run dashboard
 
+Collection runs in strict mode with a fresh input directory for every invocation.
+Incomplete evidence stops rule evaluation and publishing. The separate
+`collection-status.json` artifact records project discovery, project collectors,
+and organization collectors; it is never evaluated as a rule target. Security
+violations in a complete assessment remain advisory findings.
+
 The manual assessment pipeline also generates `psrule-dashboard.html` and
 `psrule-summary.md` directly from the detailed assessment results. The dashboard
 contains totals, failure charts by rule and resource, and a findings table with

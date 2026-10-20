@@ -3,7 +3,7 @@ param (
     [Parameter(Mandatory)]
     [string]$ModuleManifestPath,
     [string]$Organization = 'ai-experiments',
-    [string]$OrganizationId = '3b022c28-683d-4d7e-87a5-bd8198332011',
+    [string]$OrganizationId,
     [string]$ResourceGroupName = 'rg-psrule-azuredevops-weu'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,10 +14,16 @@ Import-Module PSRule -RequiredVersion 2.9.0 -Force
 Import-Module $ModuleManifestPath -Force
 $accessToken = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
 if ($LASTEXITCODE -ne 0 -or -not $accessToken) { throw 'Could not acquire Azure DevOps authentication.' }
+if (-not $OrganizationId) {
+    $connectionData = Invoke-RestMethod -Uri "https://dev.azure.com/$Organization/_apis/connectionData" -Headers @{ Authorization = "Bearer $accessToken" }
+    $OrganizationId = $connectionData.instanceId
+    if (-not ($OrganizationId -as [guid])) { throw 'Could not resolve the Azure DevOps organization instance ID.' }
+}
 Connect-AzDevOps -Organization $Organization -OrganizationId $OrganizationId -AccessToken $accessToken
-$exportPath = Join-Path $env:PIPELINE_WORKSPACE "psrule-export-$($env:BUILD_BUILDID)"
+$exportPath = Join-Path $env:PIPELINE_WORKSPACE "psrule-export-$($env:BUILD_BUILDID)-$([guid]::NewGuid().ToString('N'))"
 New-Item $exportPath -ItemType Directory -Force | Out-Null
-Export-AzDevOpsOrganizationRuleData -Organization $Organization -OrganizationId $OrganizationId -OutputPath $exportPath
+$completenessReportPath = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'collection-status.json'
+Export-AzDevOpsOrganizationRuleData -Organization $Organization -OrganizationId $OrganizationId -OutputPath $exportPath -Strict -CompletenessReportPath $completenessReportPath
 # Organization exports live in project subfolders; select actual files recursively.
 $inputFiles = @(Get-ChildItem $exportPath -File -Recurse -Filter '*.json' | Select-Object -ExpandProperty FullName)
 if ($inputFiles.Count -eq 0) { throw 'The organization export produced no JSON input files.' }
