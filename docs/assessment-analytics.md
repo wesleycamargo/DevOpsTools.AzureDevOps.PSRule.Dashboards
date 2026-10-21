@@ -97,8 +97,9 @@ its shared-key publisher. It preserves its prior rule selection using an explici
 options for historical comparison. Its SARIF, raw-data and existing
 analysis artifacts remain available, and `psrule-results` is added for history.
 
-`PublishHtmlReport@1` requires the HTML Reports extension. Evolution is integrated
-into the same report; no separate app or hosting is required.
+`PublishHtmlReport@1` requires the HTML Reports extension. Select **DevOps Assessment
+Analytics** on the run's Reports page. Evolution is integrated into the same report;
+no separate app or hosting is required.
 
 ## History and retention
 
@@ -149,26 +150,67 @@ the shell template is `psrule-dashboard.html`. `npm run format` formats those fi
   ingestion errors; download the artifact independently of the ingestion result.
 - No Reports tab: inspect extension installation/task status and artifact HTML first.
 
-Live read-only validation discovered organization `ai-experiments`, project
-`PSRule.Rules.AzureDevOps`, pipeline 17, and downloaded/normalized run 113 through
-the actual artifact API. That definition is **classic** and embeds its scripts;
-queuing it on a feature branch does not test this source. It must not be silently
-updated to deploy these changes.
+### Live validation: 2026-10-21
 
-To complete pipeline/extension validation in an approved test context:
+The existing classic definition 17 in `ai-experiments/PSRule.Rules.AzureDevOps`
+was executed as [run 116](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=116).
+It succeeded on `AI-Pool` using `devcontainer-agent` running in this container.
+The assessment collected complete evidence and evaluated 645 checkpoints:
+257 passed, 388 failed, and compliance was 39.8%.
 
-1. Create a temporary YAML pipeline from this dashboard feature branch using
-   `azure-pipelines/publish-workbooks.yml`, existing `AI-Pool`, GitHub endpoint and
-   `psrule-azure` service connection; retain the existing classic definition untouched.
-2. Queue it with `reportOnly: true`. Verify collection/evaluation status, readiness,
-   `psrule-results` artifacts (HTML, Markdown, SARIF, snapshot, collection and history),
-   and the HTML Reports tab. A partial collection should retain evidence and fail visibly.
-3. Queue a second report-only assessment and compare both retained snapshots. Compare
-   totals against the snapshot and underlying PSRule results. Confirm absent checkpoints
-   remain scope changes and never become resolved findings.
-4. Open the report in Azure DevOps and offline; exercise filters, navigation and
-   selected-run Evolution. Confirm no external requests or tokens in the HTML.
+Definition 17 embeds older scripts. Its shared configuration was left unchanged;
+the new generator was run afterward against run 116's actual raw exports, using
+the same checked-out rules and PSRule 2.9.0. Detailed outcome counts matched the
+original report. The resulting HTML, normalized snapshot, history and Markdown
+were attached to that run's existing `psrule-results` artifact. The old report was
+preserved. A separate **DevOps Assessment Analytics** report was registered alongside
+**PSRule Dashboard** on the existing
+[Reports page](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=116&view=blakyaks.azure-pipelines-html-reports.build-html-reports-tab).
 
-Creating that temporary pipeline requires explicit approval because the task forbids
-modifying live Azure DevOps resources. Pipeline creation and execution have not been
-performed as part of the read-only integration checks above.
+Verification downloaded the published artifact, compared its HTML to the generated
+file, checked snapshot totals and token exclusion, and confirmed the new report's
+attachment registration. Playwright opened the downloaded HTML and navigated all
+six views without page errors or external requests. This checks the published
+file; it does not constitute an authenticated browser check of the Azure DevOps
+Reports page itself. Local browser suites separately cover sandboxed iframes.
+
+The real history collector subsequently retrieved run 116's normalized snapshot
+and run 113's legacy SARIF through the artifact API. Run 113's compliance remains
+unavailable; the pair cannot establish verified lifecycle improvement.
+
+### Remaining deployment validation
+
+Reuse definition 17; do not create another definition. Executing the unchanged
+classic pipeline does not execute this branch's updated orchestration. Automatic
+generation still requires approval to update the existing definition to use the
+reviewed dashboard source and provide its job token for historical Build Read.
+No service connection, infrastructure, secret or retention changes are required.
+
+After that update is authorized, run the existing definition in report-only mode
+twice. Verify snapshots, SARIF, Markdown, collection/history evidence and the new
+Reports tab are published by pipeline tasks, rather than attached afterward.
+Compare the two normalized runs and verify totals against detailed PSRule results.
+Use an authenticated browser to exercise filters, navigation and Evolution in the
+actual Reports viewer. Missing checkpoints must remain scope changes.
+
+### Plan: build agent in the devcontainer
+
+The successful run used a temporary agent directory and `run.sh --once`; that
+listener exited after its job. Automatic startup is planned, not implemented.
+
+1. Reuse the agent package already installed at `/opt/azure-pipelines-agent` by
+   the workspace's `.devcontainer/Dockerfile`. Add a startup wrapper that removes
+   invalid process environment names before registration/capability discovery.
+   The observed registration failure was a leading newline in the name
+   `\nCONDA_PROMPT_MODIFIER`. In PowerShell, remove it using explicit
+   `[System.Management.Automation.Language.NullString]::Value`; assigning `$null`
+   through the .NET API retained an empty-valued invalid key in this environment.
+2. Persist registration, credentials and work data in a dedicated named volume
+   owned by `vscode`. Keep credentials out of source and image layers. Configure
+   only when unregistered, with a bounded timeout and the approved authentication
+   mechanism; do not unconditionally replace an existing agent registration.
+3. Start one continuous listener with the Compose lifecycle, preserving skills
+   synchronization. Use a single-listener lock and graceful signal handling.
+4. Validate startup, stop/start and rebuild: the same registration returns online,
+   a queued job runs in this container, malformed environment names cannot stall
+   registration, and logs/reports contain no credentials.

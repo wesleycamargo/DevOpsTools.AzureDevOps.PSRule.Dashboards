@@ -49,9 +49,9 @@ steps:
       ArtifactName: psrule-results
       publishLocation: Container
   - task: PublishHtmlReport@1
-    displayName: Publish PSRule Dashboard tab
+    displayName: Publish DevOps Assessment Analytics tab
     condition: and(succeededOrFailed(), eq(variables['PSRuleReportReady'], 'true'))
     inputs:
       reportDir: $(Build.ArtifactStagingDirectory)/psrule-dashboard.html
-      tabName: PSRule Dashboard
+      tabName: DevOps Assessment Analytics
       useFilenameTabs: false

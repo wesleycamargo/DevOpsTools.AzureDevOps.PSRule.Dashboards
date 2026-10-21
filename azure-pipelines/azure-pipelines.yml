@@ -138,5 +138,5 @@ stages:
             condition: and(succeededOrFailed(), eq(variables['PSRuleReportReady'], 'true'))
             inputs:
               reportDir: $(Build.ArtifactStagingDirectory)/export/psrule-dashboard.html
-              tabName: PSRule Dashboard
+              tabName: DevOps Assessment Analytics
               useFilenameTabs: false
