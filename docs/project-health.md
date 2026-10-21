@@ -202,3 +202,35 @@ the script rejects inputs of 64 KB or larger. Exact source bytes, worker launch
 and report-only arguments have regression coverage. Regenerate this bootstrap
 when updating the classic definition; changing a source branch alone does not
 replace embedded classic task code.
+
+### Updating existing classic pipeline 17
+
+1. Review and validate source changes in this repository. Generate the inline
+   task bootstrap with `./src/scripts/New-ProjectHealthPipelineBundle.ps1` from
+   the repository root. The output contains the ten source/config files listed
+   in that script; the script enforces the safe task-input size limit.
+2. In the existing classic definition **17**, replace only the assessment task's
+   inline script with that generated bootstrap. Preserve the existing queue,
+   authentication, report/artifact tasks and **Project Health & Compliance** tab
+   name. Re-read the current definition revision before applying an update so
+   concurrent edits are not overwritten. Selecting a branch alone updates the
+   checked-out rule module, not this embedded dashboard source.
+3. For an approved report-only validation, queue the existing definition with
+   `PSRuleReportOnly=true`. Its task environment maps that value to
+   `PSRULE_REPORT_ONLY`; the bootstrap passes `-ReportOnly` to the assessment.
+   The normal default remains false. History acquisition uses the existing job
+   token mapped as `SYSTEM_ACCESSTOKEN`, with same-organization Build Read access.
+4. Start the registered build agent in the container after checking its process
+   environment. The validated `devcontainer-agent` used `AI-Pool` and a temporary
+   working directory with `run.sh --once`. It exits after the job. Automatic
+   devcontainer startup is only a [plan](assessment-analytics.md#plan-build-agent-in-the-devcontainer).
+5. Check assessment, artifact and HTML publication success; verify the log confirms
+   report-only completion. Download the actual attachment, confirm its embedded
+   source and data against the generated artifact, and test its tabs and filters.
+   Report registration is separate from an authenticated portal-browser check.
+
+The final validated rules checkout was `fix/assessment-trust` at
+`164726afbb48861b9abad768834fd9ba17f524d8`. The dashboard feature is reviewed on
+`feature/project-health-dashboard` against its `feat/assessment-analytics` base;
+neither branch is assumed merged into `main`. Review and publish the intended
+source bundle explicitly when promoting the change.

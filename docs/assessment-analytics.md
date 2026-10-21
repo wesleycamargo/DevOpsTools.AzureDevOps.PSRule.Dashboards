@@ -101,9 +101,11 @@ its shared-key publisher. It preserves its prior rule selection using an explici
 options for historical comparison. Its SARIF, raw-data and existing
 analysis artifacts remain available, and `psrule-results` is added for history.
 
-`PublishHtmlReport@1` requires the HTML Reports extension. Select **DevOps Assessment
-Analytics** on the run's Reports page. Evolution is integrated into the same report;
-no separate app or hosting is required.
+`PublishHtmlReport@1` requires the HTML Reports extension. The repository YAML
+names the report **DevOps Assessment Analytics**. The updated classic definition
+17 uses **Project Health & Compliance**; [run 121](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=121&view=blakyaks.azure-pipelines-html-reports.build-html-reports-tab)
+contains the current three-tab dashboard. Evolution is integrated into the same
+report; no separate app or hosting is required.
 
 ## History and retention
 
@@ -192,7 +194,12 @@ published snapshots, SARIF, Markdown, collection/history evidence and the new
 their comparison verified 645 matching checkpoints without claiming improvement.
 See [Project Health validation](project-health.md#live-pipeline-validation-2026-10-21)
 for run links, file size, the compressed classic-task bundle and the remaining
-signed-in portal-browser limitation. No Azure Monitor ingestion was requested.
+signed-in portal-browser limitation. Subsequent revision **15**, validated by
+**run 121**, hides empty effort content and uses measured remediation priority.
+Its report-only job succeeded on `devcontainer-agent`; the exact published
+attachment and comparison with run 120 passed browser checks. See the
+[effort follow-up](project-health.md#effort-presentation-follow-up) for final
+evidence. No Azure Monitor ingestion was requested.
 
 ### Plan: build agent in the devcontainer
 
