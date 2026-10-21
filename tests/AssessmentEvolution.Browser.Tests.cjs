@@ -47,6 +47,83 @@ const { chromium } = require("playwright");
         ),
       );
     };
+    const historical = structuredClone(payload);
+    historical.history.snapshots = [
+      {
+        ...structuredClone(payload),
+        runId: "fixture-org/earlier",
+        timestamp: "2026-05-31T00:00:00Z",
+        results: payload.results.map((r) => [
+          r.fingerprint,
+          r.project,
+          r.category,
+          r.ruleName,
+          r.outcome,
+        ]),
+      },
+    ];
+    await render(historical);
+    await page.locator("#ph-run").selectOption("0");
+    const historicalFindings = page.locator(".ph-panel").filter({
+      has: page.getByRole("heading", {
+        name: "Findings and all outcomes",
+        exact: true,
+      }),
+    });
+    assert.ok(
+      (
+        await historicalFindings
+          .getByLabel("Finding severity")
+          .locator("option")
+          .allTextContents()
+      ).includes("High"),
+      "Historical severity filtering must retain known rule severity",
+    );
+    await historicalFindings
+      .getByLabel("Finding severity")
+      .selectOption("High");
+    assert.equal(await historicalFindings.locator("tbody tr").count(), 24);
+
+    for (const outcome of ["Ignore", "None", "Suppressed"]) {
+      const changed = structuredClone(historical);
+      const failed = payload.results.find((r) => r.outcome === "Fail");
+      changed.history.snapshots[0].results = [
+        [
+          failed.fingerprint,
+          failed.project,
+          failed.category,
+          failed.ruleName,
+          "Fail",
+        ],
+      ];
+      changed.results = [{ ...failed, outcome }];
+      await render(changed);
+      await page.getByRole("tab", { name: /^Evolution/ }).click();
+      const lifecycle = page.locator(".ph-panel").filter({
+        has: page.getByRole("heading", {
+          name: "Finding lifecycle",
+          exact: true,
+        }),
+      });
+      assert.equal(await lifecycle.locator(".ph-lifecycle button").count(), 6);
+      assert.match(
+        await lifecycle.textContent(),
+        /1 lifecycle checkpoints are unverified/,
+      );
+      assert.match(
+        await lifecycle.textContent(),
+        /changed scope or applicability/,
+      );
+      assert.equal(
+        await lifecycle
+          .locator(".ph-lifecycle button strong")
+          .allTextContents()
+          .then((values) =>
+            values.reduce((total, value) => total + Number(value), 0),
+          ),
+        0,
+      );
+    }
     const originalEffort = payload.effort;
     payload.effort = { categoryDefaults: {}, ruleOverrides: {} };
     await render(payload);

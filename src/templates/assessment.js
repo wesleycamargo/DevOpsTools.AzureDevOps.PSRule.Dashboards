@@ -214,6 +214,7 @@
         const results = (source.results || []).map((r) =>
           Array.isArray(r)
             ? {
+                ...rules[r[3]],
                 fingerprint: r[0],
                 project: r[1],
                 category: category(r[2]),
@@ -531,6 +532,7 @@
           lifecycle.resolved.push(row);
         else if (prior?.outcome === "Fail" && row.outcome === "Fail")
           lifecycle.persistent.push(row);
+        else if (prior?.outcome === "Fail") lifecycle.unverified.push(row);
         else if (row.outcome === "Fail") {
           if (!a.evaluatedRules?.includes(row.ruleName)) {
             lifecycle.fromNewRules.push(row);
@@ -1593,6 +1595,8 @@
             ),
           );
         else {
+          for (const limitation of comparison.limitations)
+            lifecyclePanel.append(node("p", limitation, "ph-note"));
           const tiles = node("div", undefined, "ph-lifecycle");
           lifecyclePanel.append(tiles);
           for (const [key, label] of [

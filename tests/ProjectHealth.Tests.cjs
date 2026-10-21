@@ -167,6 +167,26 @@ assert.equal(compared.lifecycle.recurring.length, 1);
 assert.equal(compared.lifecycle.new.length, 2);
 assert.equal(compared.lifecycle.notReassessed.length, 1);
 assert.equal(compared.lifecycle.fromNewRules.length, 1);
+for (const outcome of ["Ignore", "None", "Suppressed"]) {
+  const changed = H.compareRuns(
+    run([row("applicability")]),
+    run([row("applicability", outcome)], { runId: "fixture/2" }),
+    [],
+    map,
+  );
+  assert.equal(changed.compatible, true);
+  assert.equal(changed.lifecycle.resolved.length, 0);
+  assert.deepEqual(
+    changed.lifecycle.unverified.map((r) => r.fingerprint),
+    ["applicability"],
+  );
+  assert.equal(
+    Object.values(changed.lifecycle).flat().length,
+    1,
+    `Fail to ${outcome} must remain accounted for exactly once`,
+  );
+  assert.ok(changed.limitations.some((text) => text.includes("applicability")));
+}
 const unverifiedPrior = H.compareRuns(
   a,
   b,
@@ -262,6 +282,8 @@ const compact = H.normalize({
 assert.equal(compact.results[0].displayName, "Readable");
 assert.equal(compact.history.snapshots[0].results[0].category, "Repos");
 assert.equal(compact.history.snapshots[0].results[0].identityComplete, false);
+assert.equal(compact.history.snapshots[0].results[0].severity, "High");
+assert.equal(compact.history.snapshots[0].results[0].displayName, "Readable");
 assert.equal(
   H.normalize({ ...a, schemaVersion: "1.0" }).rules.R.category,
   "Repos",
