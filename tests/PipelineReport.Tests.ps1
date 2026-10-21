@@ -19,7 +19,7 @@ Describe 'Pipeline assessment report' {
         & $scriptPath -Results $results -Organization organization -RunId organization/42 -Timestamp ([datetime]'2026-10-09T12:00:00Z') -OutputDirectory $TestDrive
         $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
         $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
-        $html | Should -Match 'PSRule Dashboard'
+        $html | Should -Match 'Project Health &amp; Compliance'
         $html | Should -Match 'organization/42'
         $summary | Should -Match '\| Total checkpoints \| 3 \|'
         $summary | Should -Match '\| Passed checkpoints \| 1 \|'
@@ -49,6 +49,7 @@ Describe 'Pipeline assessment report' {
     It 'reads serialized resource IDs and displays absent or invalid metadata as Unknown' {
         $known = New-ReportResult
         $missing = New-ReportResult
+        $missing.RuleName = 'Metadata.NotAvailable'
         $missing.Field.id = 'not-json'
         $missing.Info = $null
         & $scriptPath -Results @($known, $missing) -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
@@ -56,8 +57,8 @@ Describe 'Pipeline assessment report' {
         $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
         $data.results[0].project | Should -Be 'prøject'
         $data.results[1].project | Should -Be 'Unknown'
-        $data.results[1].severity | Should -Be 'Unknown'
-        $data.results[1].displayName | Should -Be 'Unknown'
+        $data.rules.($data.results[1].ruleName).severity | Should -Be 'Unknown'
+        $data.rules.($data.results[1].ruleName).displayName | Should -Be 'Unknown'
     }
 
     It 'keeps HTML and script-like text as data without losing Unicode' {

@@ -21,9 +21,9 @@ workbooks to your Azure subscription.
 
 The manual assessment pipeline generates `psrule-dashboard.html`,
 `psrule-summary.md`, and a versioned `assessment-snapshot.json` from detailed
-assessment results. The dashboard provides six views for assessment totals,
-risk, projects and resources, finding investigation, historical evolution, and
-maturity evidence availability. Its Evolution view uses retained pipeline
+assessment results. The dashboard provides Project Health, Compliance Readiness
+and Evolution tabs, with shared filters, configurable effort, an investigation
+drawer and a static fallback. Its Evolution view uses retained pipeline
 artifacts; Azure Monitor workbooks remain supported independently.
 
 An organization administrator must install
@@ -147,4 +147,4 @@ hour intervals.
 
 ## DevOps assessment analytics
 
-The standalone dashboard provides Overview, Risk & Compliance, Projects & Resources, Findings Explorer, Evolution, and an evidence-based maturity placeholder. See [assessment analytics](docs/assessment-analytics.md) for pipeline setup, snapshot contracts, comparison semantics, retention limitations, tests and Azure DevOps validation.
+See [Project Health & Compliance](docs/project-health.md) for the three-tab experience, effort configuration, display contract, comparison semantics, screenshots and validation. The [assessment analytics](docs/assessment-analytics.md) notes describe the underlying snapshot and artifact history contracts.

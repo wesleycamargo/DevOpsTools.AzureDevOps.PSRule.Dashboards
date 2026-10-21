@@ -1,5 +1,9 @@
 # Assessment analytics
 
+The current three-tab presentation is documented in [Project Health & Compliance](project-health.md).
+The six-view description below records the earlier presentation; its version 1
+snapshot and artifact-history contracts remain the underlying evidence format.
+
 PowerShell generates `psrule-dashboard.html`, `psrule-summary.md` and
 `assessment-snapshot.json`. The HTML embeds its CSS, JavaScript, current snapshot
 and available history. Open it from the pipeline's Reports page or download it

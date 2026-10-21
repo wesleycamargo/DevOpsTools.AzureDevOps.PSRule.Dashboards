@@ -1,101 +1,187 @@
-const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
-const { mkdtempSync, readFileSync, writeFileSync } = require('node:fs');
-const { tmpdir } = require('node:os');
-const path = require('node:path');
-const { chromium } = require('playwright');
-
+const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const { mkdtempSync, readFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const path = require("node:path");
+const { chromium } = require("playwright");
 (async () => {
-    const output = mkdtempSync(path.join(tmpdir(), 'psrule-report-browser-'));
-    const attack = '</script><script>window.reportInjected=true</script><img src=x onerror=alert(1)> prøject';
-    const result = (Outcome, RuleName, TargetName, project, resourceName, severity = 'Critical') => ({
-        Outcome, RuleName, TargetName, TargetType: 'Azure.DevOps.Project',
-        Info: { DisplayName: RuleName, Annotations: { severity } },
-        TargetObject: { id: { project, resourceName } }
+  const output = mkdtempSync(path.join(tmpdir(), "project-health-browser-"));
+  execFileSync("pwsh", [
+    "-NoProfile",
+    "-File",
+    path.join(__dirname, "New-ProjectHealthFixture.ps1"),
+    "-OutputDirectory",
+    output,
+  ]);
+  const html = readFileSync(path.join(output, "psrule-dashboard.html"), "utf8");
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+      }),
+      errors = [],
+      requests = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    page.on("console", (m) => {
+      if (m.type() === "error") errors.push(m.text());
     });
-    const results = [
-        result('Fail', 'Rule.A', 'shared-resource', 'alpha', 'shared'),
-        result('Pass', 'Rule.A', 'shared-resource', 'alpha', 'shared'),
-        result('Fail', 'Rule.B', 'shared-resource', 'beta', 'shared'),
-        { Outcome: 'Ignore', RuleName: 'Rule.C', TargetName: 'missing-resource' },
-        result('Pass', attack, 'injected-resource', 'alpha', attack, 'Warning'),
-        ...Array.from({ length: 51 }, (_, i) => result('Pass', 'Rule.C', `resource-${i}`, 'alpha', `resource-${i}`, 'Warning'))
-    ];
-    const fixture = path.join(output, 'results.json');
-    writeFileSync(fixture, JSON.stringify(results));
-    execFileSync('pwsh', ['-NoProfile', '-Command', "& $env:PSRULE_REPORT_SCRIPT -Results @(Get-Content $env:PSRULE_REPORT_FIXTURE -Raw | ConvertFrom-Json) -Organization test-org -RunId test-org/42 -Timestamp ([datetime]'2026-10-09T12:00:00Z') -OutputDirectory $env:PSRULE_REPORT_OUTPUT"], {
-        env: { ...process.env, PSRULE_REPORT_SCRIPT: path.resolve(__dirname, '../src/scripts/Export-PSRulePipelineReport.ps1'), PSRULE_REPORT_FIXTURE: fixture, PSRULE_REPORT_OUTPUT: output }
+    page.on("request", (r) => {
+      if (/^https?:/.test(r.url())) requests.push(r.url());
     });
-    const browser = await chromium.launch({ headless: true });
-    try {
-        const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
-        const errors = [];
-        const network = [];
-        page.on('pageerror', error => errors.push(error.message));
-        page.on('request', request => { if (/^https?:/.test(request.url())) network.push(request.url()); });
-        await page.setContent('<iframe id="report-frame" sandbox="allow-scripts" style="width:100%;height:920px;border:0"></iframe>');
-        await page.evaluate(html => { document.getElementById('report-frame').srcdoc = html; }, readFileSync(path.join(output, 'psrule-dashboard.html'), 'utf8'));
-        const frame = page.frameLocator('#report-frame');
-        await frame.locator('#total').waitFor({ state: 'visible' });
-        assert.equal(await frame.locator('#total').textContent(), '56');
-        assert.equal(await frame.locator('#global-metrics').getByText('56', {exact:true}).count(), 1);
-        await frame.getByRole('button', {name:'Findings Explorer', exact:true}).click();
-        assert.equal(await frame.locator('#outcome').inputValue(), 'Fail');
-        assert.equal(await frame.locator('#findings tr').count(), 2);
-        await frame.locator('#outcome').selectOption('');
-        assert.equal(await frame.locator('#findings tr').count(), 50);
-        await frame.locator('#next').click();
-        assert.equal(await frame.locator('#findings tr').count(), 6);
-        await frame.locator('#findings tr').first().getByRole('button').first().click();
-        await frame.locator('#back').click();
-        assert.equal(await frame.locator('#page-info').textContent(), 'Page 2 of 2');
-        await frame.locator('#project').selectOption('beta');
-        assert.equal(await frame.locator('#total').textContent(), '1');
-        assert.equal(await frame.locator('#global-metrics').getByText('56', {exact:true}).count(), 1);
-        assert.equal(await frame.locator('#page-info').textContent(), 'Page 1 of 1');
-        await frame.locator('#reset').click();
-        await frame.locator('#severity').selectOption('Critical');
-        assert.equal(await frame.locator('#total').textContent(), '3');
-        await frame.locator('#outcome').selectOption('Pass');
-        assert.equal(await frame.locator('#total').textContent(), '1');
-        await frame.locator('#reset').click();
-        await frame.locator('#outcome').selectOption('Ignore');
-        assert.equal(await frame.locator('#total').textContent(), '1');
-        await frame.locator('#reset').click();
-        await frame.getByRole('button', {name:'Overview', exact:true}).click();
-        await frame.locator('#rule-chart .bar-label').filter({ hasText: 'Rule.A' }).click();
-        assert.equal(await frame.locator('#total').textContent(), '2');
-        await frame.locator('#reset').click();
-        await frame.locator('#search').fill('prøject');
-        assert.equal(await frame.locator('#total').textContent(), '1');
-        assert.ok((await frame.locator('#findings').textContent()).includes(attack));
-        assert.equal(await frame.locator('img').count(), 0);
-        assert.equal(await frame.locator('body').evaluate(() => window.reportInjected), undefined);
-        await frame.locator('#findings').getByRole('button', {name:attack, exact:true}).first().click();
-        assert.ok((await frame.locator('#view').textContent()).includes('Not supplied by the rule metadata.'));
-        await frame.getByRole('button', {name:'Back to findings',exact:true}).click();
-        await frame.getByRole('combobox', {name:'Group findings'}).selectOption('project');
-        assert.equal(await frame.locator('#findings tr').count(), 1);
-        await frame.getByRole('combobox', {name:'Group findings'}).selectOption('');
-        await frame.getByRole('combobox', {name:'Sort findings'}).selectOption('outcome');
-        await frame.locator('#search').fill('no-such-resource');
-        assert.equal(await frame.locator('#total').textContent(), '0');
-        assert.equal(await frame.locator('#findings').textContent(), 'No results match these filters.');
-        await frame.locator('#reset').click();
-        for (const name of ['Risk & Compliance','Projects & Resources','Evolution','Maturity']) {
-            await frame.getByRole('button', {name,exact:true}).click();
-            assert.ok((await frame.locator('#view').textContent()).length > 100);
-        }
-        assert.ok((await frame.locator('#view').textContent()).includes('evidence unavailable'));
-        await frame.locator('#theme').selectOption('dark');
-        assert.equal(await frame.locator('html').getAttribute('data-theme'), 'dark');
-        await frame.getByRole('button', {name:'Overview', exact:true}).click();
-        await page.screenshot({ path: path.join(output, 'dashboard-preview.png'), fullPage: true });
-        await page.setViewportSize({ width: 480, height: 900 });
-        const width = await frame.locator('body').evaluate(() => ({ content: document.documentElement.scrollWidth, viewport: window.innerWidth }));
-        assert.ok(width.content <= width.viewport, 'Dashboard should fit a narrow viewport');
-        assert.deepEqual(errors, []);
-        assert.deepEqual(network, []);
-        console.log(`Browser checks passed: filters, drill-downs, pagination, escaping, empty selection, responsive layout, and no network requests. Preview: ${output}`);
-    } finally { await browser.close(); }
-})().catch(error => { console.error(error); process.exitCode = 1; });
+    await page.setContent(
+      '<iframe id="frame" sandbox="allow-scripts" style="width:100%;height:1000px;border:0"></iframe>',
+    );
+    await page
+      .locator("#frame")
+      .evaluate((frame, html) => (frame.srcdoc = html), html);
+    const f = page.frameLocator("#frame");
+    await f.getByRole("tab", { name: /^Project Health/ }).waitFor();
+    assert.equal(await f.locator(".ph-kpis article").count(), 4);
+    await f.locator("#ph-project").selectOption("Atlas");
+    await f.getByRole("tab", { name: /^Compliance Readiness/ }).click();
+    assert.equal(await f.locator("#ph-project").inputValue(), "Atlas");
+    assert.ok(
+      (await f.locator("#ph-readiness").textContent()).includes("Quick win"),
+    );
+    await f.locator("#ph-category").selectOption("Repos");
+    await f.getByRole("tab", { name: /^Project Health/ }).click();
+    assert.equal(await f.locator("#ph-category").inputValue(), "Repos");
+    await f
+      .locator(".ph-heatmap")
+      .getByRole("button", { name: /Atlas \/ Repos:/ })
+      .click();
+    await f
+      .locator("#ph-detail")
+      .getByRole("button", { name: "Fixture.Repos.Protection", exact: true })
+      .click();
+    await f
+      .locator("#ph-detail")
+      .getByRole("button", { name: "Atlas / resource-1", exact: true })
+      .click();
+    assert.ok(
+      (await f.locator("#ph-detail").textContent()).includes(
+        "Fixture: protection outcome Fail",
+      ),
+    );
+    assert.ok(
+      (await f.locator("#ph-detail").textContent()).includes(
+        "Category default: Repos",
+      ),
+    );
+    assert.equal(
+      await f.locator('#ph-detail a[target="_blank"][rel="noopener"]').count(),
+      1,
+    );
+    await f
+      .locator("#ph-breadcrumb")
+      .getByRole("button", { name: "Atlas", exact: true })
+      .click();
+    await f
+      .locator("#ph-detail")
+      .getByRole("button", { name: "Repos", exact: true })
+      .waitFor();
+    await f.getByRole("button", { name: "Close details", exact: true }).click();
+    await f.locator("#ph-theme").click();
+    assert.equal(
+      await f.locator("#psr-dashboard").getAttribute("data-theme"),
+      "dark",
+    );
+    await f.locator("#ph-project").selectOption("");
+    await f.locator("#ph-category").selectOption("");
+    await f.getByRole("tab", { name: /^Evolution/ }).click();
+    await f.locator("#ph-before").selectOption("0");
+    await f.locator("#ph-after").selectOption("2");
+    await f.locator("#ph-like").check();
+    assert.equal(await f.locator(".ph-lifecycle button").count(), 6);
+    assert.ok(
+      (await f.locator("#ph-evolution").textContent()).includes(
+        "Not re-assessed",
+      ),
+    );
+    assert.ok(
+      (await f.locator("#ph-evolution").textContent()).includes(
+        "like-for-like",
+      ),
+    );
+    await f
+      .locator(".ph-lifecycle button")
+      .filter({ hasText: "Resolved" })
+      .click();
+    assert.ok((await f.locator("#ph-detail").textContent()).includes("Delta"));
+    await f.getByRole("button", { name: "Close details", exact: true }).click();
+    for (const width of [1440, 1024, 768]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await f.getByRole("tab", { name: /^Project Health/ }).click();
+      assert.equal(
+        await f
+          .locator("#psr-dashboard")
+          .evaluate((n) => n.scrollWidth <= n.clientWidth + 1),
+        true,
+      );
+    }
+    assert.equal(await f.locator("img").count(), 0);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(requests, []);
+    // An extension may inject markup without executing scripts. The static document must stand alone.
+    await page.setContent(
+      '<style>body{background:rgb(1,2,3)}#host-heading{font-size:31px}</style><h1 id="host-heading">Host</h1><div id="injected"></div>',
+    );
+    await page
+      .locator("#injected")
+      .evaluate((el, html) => (el.innerHTML = html), html);
+    assert.equal(await page.locator("#injected #ph-tabs").isVisible(), false);
+    await page
+      .locator("#injected")
+      .getByRole("heading", {
+        name: "Team Project ranking × category",
+        exact: true,
+      })
+      .waitFor();
+    assert.ok(
+      (
+        await page.locator("#injected #ph-static-findings").textContent()
+      ).includes("Fixture.Repos.Protection"),
+    );
+    assert.equal(
+      await page
+        .locator("#host-heading")
+        .evaluate((n) => getComputedStyle(n).fontSize),
+      "31px",
+    );
+    assert.equal(
+      await page
+        .locator("body")
+        .evaluate((n) => getComputedStyle(n).backgroundColor),
+      "rgb(1, 2, 3)",
+    );
+    assert.equal(await page.locator("#injected img").count(), 0);
+    const noJs = await browser.newContext({ javaScriptEnabled: false });
+    const staticPage = await noJs.newPage();
+    await staticPage.goto(`file://${output}/psrule-dashboard.html`);
+    await staticPage
+      .getByRole("heading", { name: "Organization-wide controls", exact: true })
+      .waitFor();
+    await staticPage
+      .locator("#ph-static-findings > details")
+      .first()
+      .locator("summary")
+      .first()
+      .click();
+    assert.equal(
+      await staticPage
+        .locator("#ph-static-findings > details")
+        .first()
+        .getAttribute("open"),
+      "",
+    );
+    await noJs.close();
+    console.log(
+      "Project Health browser checks passed: filters, drawer/breadcrumb, comparisons, themes, responsive widths, offline sandboxed iframe, injection and no-JavaScript fallback.",
+    );
+  } finally {
+    await browser.close();
+  }
+})().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});
