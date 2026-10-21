@@ -120,7 +120,7 @@ Production screenshots use only these fixtures:
 
 Read-only Azure DevOps inspection downloaded run 116's actual artifact. Offline
 reevaluation of its existing exports preserved all 645 checkpoint identities and
-257 Pass / 388 Fail totals. The final report is **925,698 bytes (0.93 MB)** against
+257 Pass / 388 Fail totals. The final report is **926,552 bytes (0.93 MB)** against
 the brief's **1.76 MB** baseline (about 47% smaller). All three views rendered with
 no page errors or network requests, and Markdown remained byte-for-byte unchanged.
 All **40 Pester tests**, both Node calculation suites and both browser suites pass. Actual

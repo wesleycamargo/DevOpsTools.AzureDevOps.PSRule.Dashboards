@@ -688,6 +688,7 @@
       };
       $("#ph-category").onchange = (e) => {
         state.category = e.target.value;
+        if (state.category && state.rank !== state.category) state.rank = "";
         render();
       };
       $("#ph-run").onchange = (e) => {
@@ -998,14 +999,25 @@
           (a, b) => b.failed - a.failed,
         )) {
           if (!c.failed) continue;
+          const share = (100 * c.failed) / (s.failed || 1);
           const line = node("p");
           line.append(
             button(c.category, () => openDrawer({ category: c.category })),
             document.createTextNode(
-              ` · ${c.failed} fail · ${percent(c.compliance)} · ${Math.round((100 * c.failed) / (s.failed || 1))}% of failures`,
+              ` · ${c.failed} fail · ${percent(c.compliance)} · ${share.toFixed(1)}% of failures`,
             ),
           );
           gaps.append(line);
+          const bar = node("div", undefined, "ph-gap-bar");
+          bar.setAttribute("role", "img");
+          bar.setAttribute(
+            "aria-label",
+            `${c.category}: ${share.toFixed(1)}% share of failures`,
+          );
+          const fill = node("span");
+          fill.style.width = `${share}%`;
+          bar.append(fill);
+          gaps.append(bar);
         }
         const organization = panel(
           columns,
@@ -1431,17 +1443,20 @@
             ["Category", ...runs.map((r) => r.runId)],
             cats.map((c) => [
               c,
-              ...runs.map((r) =>
-                percent(
-                  runStats(
-                    r,
-                    (state.like
-                      ? fromPopulation(basis.rows, r)
-                      : selected(r)
-                    ).filter((x) => x.category === c),
-                  ).compliance,
-                ),
-              ),
+              ...runs.map((r) => {
+                const value = runStats(
+                  r,
+                  (state.like
+                    ? fromPopulation(basis.rows, r)
+                    : selected(r)
+                  ).filter((x) => x.category === c),
+                ).compliance;
+                return node(
+                  "span",
+                  percent(value),
+                  `ph-cell ${H.bandClass(value)}`,
+                );
+              }),
             ]),
           );
           const p = panel(

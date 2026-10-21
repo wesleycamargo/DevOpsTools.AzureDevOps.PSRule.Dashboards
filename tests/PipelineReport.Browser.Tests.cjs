@@ -37,6 +37,27 @@ const { chromium } = require("playwright");
     const f = page.frameLocator("#frame");
     await f.getByRole("tab", { name: /^Project Health/ }).waitFor();
     assert.equal(await f.locator(".ph-kpis article").count(), 4);
+    await f
+      .getByRole("img", { name: /share of failures/ })
+      .first()
+      .waitFor();
+    await f
+      .locator(".ph-heatmap thead")
+      .getByRole("button", { name: "Pipelines", exact: true })
+      .click();
+    await f.locator("#ph-category").selectOption("Repos");
+    assert.equal(
+      await f
+        .locator(".ph-heatmap thead")
+        .getByRole("button", { name: "Overall ▼", exact: true })
+        .count(),
+      1,
+    );
+    const ranking = await f
+      .locator(".ph-heatmap tbody tr td:nth-child(2)")
+      .allTextContents();
+    assert.ok(ranking.indexOf("Delta") < ranking.indexOf("Atlas"));
+    await f.locator("#ph-category").selectOption("");
     await f.locator("#ph-project").selectOption("Atlas");
     await f.getByRole("tab", { name: /^Compliance Readiness/ }).click();
     assert.equal(await f.locator("#ph-project").inputValue(), "Atlas");
@@ -103,6 +124,13 @@ const { chromium } = require("playwright");
         "like-for-like",
       ),
     );
+    const categoryGrid = f.locator(".ph-panel").filter({
+      has: f.getByRole("heading", {
+        name: "Category evolution",
+        exact: true,
+      }),
+    });
+    assert.ok((await categoryGrid.locator(".ph-cell").count()) > 0);
     await f
       .locator(".ph-lifecycle button")
       .filter({ hasText: "Resolved" })
