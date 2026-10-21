@@ -2,7 +2,7 @@
   "name": "psrule-assessment-analytics",
   "private": true,
   "scripts": {
-    "test": "node tests/AssessmentEvolution.Tests.cjs",
+    "test": "node tests/AssessmentEvolution.Tests.cjs && node tests/ProjectHealth.Tests.cjs",
     "test:browser": "node tests/PipelineReport.Browser.Tests.cjs && node tests/AssessmentEvolution.Browser.Tests.cjs",
     "format": "prettier --write src/templates/assessment.js src/templates/assessment.css src/templates/psrule-dashboard.html tests/AssessmentEvolution.Tests.cjs"
   },

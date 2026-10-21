@@ -8,8 +8,9 @@ It does not establish the current state of deployed Azure resources or remote br
 | Component | Responsibility |
 | --- | --- |
 | `Invoke-PSRuleWorkbookAssessment.ps1` | Import the supplied rule module, collect inputs, evaluate rules, create reports, publish results, and check ingestion. |
-| `Export-PSRulePipelineReport.ps1`, `AssessmentModel.ps1` and `src/templates/assessment.{js,css}` | Convert detailed results into a standalone HTML snapshot and Markdown summary. |
+| `Export-PSRulePipelineReport.ps1`, `ProjectHealthReport.ps1`, `AssessmentModel.ps1` and `src/templates/assessment.{js,css}` | Generate static essentials and the three-tab HTML display, Markdown summary, and normalized evidence snapshot. |
 | `Get-AssessmentHistory.ps1` | Discover, validate and aggregate retained assessment artifacts; embed history in the main dashboard. |
+| `New-ProjectHealthPipelineBundle.ps1` | Package the reporter and effort configuration into a compressed bootstrap for the existing classic pipeline task. |
 | `Publish-PSRuleWorkbookResults.ps1` | Convert detailed results to the ingestion schema and send authenticated batches. |
 | `Deploy-PSRuleWorkbooks.ps1` and `src/bicep/workbooks.bicep` | Deploy and inspect the workspace, result table, ingestion rule, and five workbooks. |
 | `src/bicep/main.bicep` and older analysis scripts | Preserve the original deployment and shared-key Monitor path. This path is distinct from the manual workbook pipeline. |
@@ -44,8 +45,38 @@ Collection now writes a completeness report. Partial or unknown collection retai
 The `psrule-results` artifact contains `psrule-results.sarif`, `psrule-dashboard.html`, and `psrule-summary.md` when generation succeeds.
 The script also attaches Markdown to the run summary.
 `PublishHtmlReport@1` requires the HTML Reports extension and uses the HTML file as `reportDir`.
-Open the run's **Reports** page to view `PSRule Dashboard`.
+Open the run's **Reports** page and select the configured attachment name.
+The repository YAML uses **DevOps Assessment Analytics**; the validated classic
+definition **17** uses **Project Health & Compliance**. Its current validation
+and operational handover are recorded in the [Project Health guide](project-health.md).
 The **Code Coverage** page is a separate report surface. This pipeline contains no coverage publication task.
+
+## Project Health report
+
+The offline report contains Project Health, Compliance Readiness and Evolution.
+PowerShell renders static essentials; JavaScript adds shared filters, a drawer,
+sorting and conservative historical comparisons. All assets and data are inline,
+with root-scoped styles and no runtime requests. Iframe rendering and static
+markup injection are supported.
+
+The HTML display projection is schema **2.0**, with one rule dictionary and compact
+historical results. Persisted snapshots/history remain schema **1.0** and use the
+existing pipeline artifact store. Missing coverage is never passing; only an
+explicit later Pass can resolve an earlier failure when evidence is comparable.
+
+`config/effort.json` supplies reviewed estimates independently of rule severity.
+It ships unset. With no known estimate for failing controls in scope, the view
+hides effort-dependent content and orders projects by measured findings. Partial
+estimates retain Unknown and Needs estimate. See [definitions and configuration](project-health.md#definitions-and-configuration)
+for ordering, thresholds and estimate provenance.
+
+The existing classic definition embeds a ZIP/base64 source snapshot instead of
+checking out this feature branch. Changing its rules source branch does not
+replace the reporter. Report-only validation skips Monitor publishing; normal
+ingestion remains a separate path. No devcontainer listener starts automatically:
+the validated agent ran with `run.sh --once` and exited after each job. The
+[startup plan](assessment-analytics.md#plan-build-agent-in-the-devcontainer) remains
+future work.
 
 ## Azure result contract
 

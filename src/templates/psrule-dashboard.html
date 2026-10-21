@@ -3,91 +3,83 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>PSRule Dashboard · DevOps Assessment Analytics</title>
-    <style>
-      __DASHBOARD_CSS__
-    </style>
+    <title>Project Health &amp; Compliance</title>
   </head>
   <body>
-    <main>
-      <header>
-        <div>
-          <h1>DevOps Assessment Analytics</h1>
-          <p id="run-info"></p>
-        </div>
-        <label
-          >Theme<select id="theme">
-            <option value="auto">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select></label
-        >
+    <main id="psr-dashboard">
+      <style>
+        __DASHBOARD_CSS__
+      </style>
+      <header class="ph-header">
+        <div>__STATIC_HEADER__</div>
+        <button type="button" id="ph-theme" hidden>Dark theme</button>
       </header>
-      <noscript
-        >This report requires JavaScript. Open psrule-summary.md for assessment
-        totals.</noscript
-      >
-      <nav aria-label="Assessment views" id="navigation"></nav>
-      <section class="panel">
-        <h2>Global assessment</h2>
-        <div id="global-metrics" class="cards"></div>
-        <p>
-          Compliance = Pass ÷ (Pass + Fail). Ignored, error, suppressed,
-          excluded and other outcomes remain visible but do not enter this
-          denominator.
-        </p>
-        <p id="collection"></p>
-        <details>
-          <summary>Collection evidence and assessment limitations</summary>
-          <pre id="collection-detail"></pre>
-        </details>
-      </section>
-      <section class="filters" aria-label="Filter assessment results">
-        <label
-          >Project<select id="project">
-            <option value="">All projects</option>
-          </select></label
-        ><label
-          >Resource type<select id="targetType">
-            <option value="">All types</option>
-          </select></label
-        ><label
-          >Category<select id="category">
-            <option value="">All categories</option>
-          </select></label
+      <nav id="ph-tabs" aria-label="Dashboard views" hidden>
+        <button type="button" data-tab="health">
+          <strong>Project Health</strong
+          ><span>How are our Team Projects doing?</span>
+        </button>
+        <button type="button" data-tab="readiness">
+          <strong>Compliance Readiness</strong
+          ><span>Which project should we remediate first?</span>
+        </button>
+        <button type="button" data-tab="evolution">
+          <strong>Evolution</strong><span>Are we improving?</span>
+        </button>
+      </nav>
+      <div class="ph-filters" id="ph-filters" hidden>
+        <label>Organization<select id="ph-organization"></select></label>
+        <label>Team Project<select id="ph-project"></select></label>
+        <label>Category<select id="ph-category"></select></label>
+        <label id="ph-run-label"
+          >Assessment run<select id="ph-run"></select
+        ></label>
+        <label class="ph-compare" hidden
+          >Run A<select id="ph-before"></select
+        ></label>
+        <label class="ph-compare" hidden
+          >Run B<select id="ph-after"></select
+        ></label>
+        <label class="ph-compare ph-check" hidden
+          ><input type="checkbox" id="ph-like" />Like-for-like only</label
         >
-        <label
-          >Outcome<select id="outcome">
-            <option value="">All outcomes</option>
-          </select></label
-        ><label
-          >Severity<select id="severity">
-            <option value="">All severities</option>
-          </select></label
-        ><label
-          >Search<input
-            id="search"
-            type="search"
-            placeholder="Rule, reason, project or resource" /></label
-        ><button id="reset">Reset filters</button
-        ><button id="back">Back to previous selection</button>
+      </div>
+      <div id="ph-status" role="status" aria-live="polite"></div>
+      <section id="ph-health" data-view="health">__STATIC_HEALTH__</section>
+      <section id="ph-readiness" data-view="readiness">
+        <h2>Which project should we remediate first?</h2>
+        <p>
+          Assessment results show compliance and outstanding controls. Enable
+          JavaScript for measured remediation priorities and the comparison matrix.
+          Effort-based readiness is available when estimates are configured.
+        </p>
       </section>
-      <section>
-        <h2>Filtered selection</h2>
-        <div class="cards" id="selection-metrics"></div>
+      <section id="ph-evolution" data-view="evolution">
+        <h2>Are we improving?</h2>
+        <p>
+          Historical comparisons require compatible assessment evidence. Enable
+          JavaScript to select runs and inspect coverage. Absent evidence never
+          proves resolution.
+        </p>
       </section>
-      <section id="view" aria-live="polite"></section>
-      <footer>
-        Self-contained assessment evidence. Pipeline artifact retention limits
-        history. Check pipeline status for collection, evaluation and workbook
-        publication errors.
-      </footer>
+      <aside
+        id="ph-drawer"
+        class="ph-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Assessment drill-down"
+        hidden
+      >
+        <button type="button" id="ph-close">Close details</button>
+        <nav id="ph-breadcrumb" aria-label="Finding breadcrumb"></nav>
+        <div id="ph-detail"></div>
+      </aside>
+      <script id="report-data" type="application/json">
+        __REPORT_DATA__
+      </script>
+      <script>
+        __DASHBOARD_JS__;
+      </script>
     </main>
-    <script id="report-data" type="application/json">
-      __REPORT_DATA__
-    </script>
-    <script>
-      __DASHBOARD_JS__;
-    </script>
   </body>
 </html>

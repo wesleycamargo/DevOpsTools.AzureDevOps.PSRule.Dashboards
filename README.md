@@ -21,16 +21,19 @@ workbooks to your Azure subscription.
 
 The manual assessment pipeline generates `psrule-dashboard.html`,
 `psrule-summary.md`, and a versioned `assessment-snapshot.json` from detailed
-assessment results. The dashboard provides six views for assessment totals,
-risk, projects and resources, finding investigation, historical evolution, and
-maturity evidence availability. Its Evolution view uses retained pipeline
+assessment results. The dashboard provides Project Health, Compliance Readiness
+and Evolution tabs, with shared filters, configurable effort, an investigation
+drawer and a static fallback. Its Evolution view uses retained pipeline
 artifacts; Azure Monitor workbooks remain supported independently.
 
 An organization administrator must install
 [BlakYaks HTML Reports](https://marketplace.visualstudio.com/items?itemName=blakyaks.azure-pipelines-html-reports)
 in the Azure DevOps organization before running the updated pipeline. Its
-`PublishHtmlReport@1` task displays **DevOps Assessment Analytics** on the pipeline
-run's Reports page. The Markdown summary appears on the run's Extensions tab through
+`PublishHtmlReport@1` task displays the report under its configured tab name.
+The validated classic pipeline **17** uses **Project Health & Compliance**;
+[open the updated dashboard in run 121](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=121&view=blakyaks.azure-pipelines-html-reports.build-html-reports-tab).
+The repository YAML still names its attachment **DevOps Assessment Analytics**.
+The Markdown summary appears on the run's Extensions tab through
 [`task.uploadsummary`](https://learn.microsoft.com/en-us/azure/devops/pipelines/scripts/logging-commands?view=azure-devops#uploadsummary-add-some-markdown-content-to-the-build-summary).
 The pipeline uses the `PSRuleReportReady` variable to publish the HTML tab only
 after a valid report has been generated.
@@ -47,14 +50,27 @@ snapshot longer. Check pipeline status separately for ingestion failures.
 An assessment with no results produces no dashboard. Collection or evaluation
 errors retain available evidence and fail visibly before Monitor publishing.
 
+Effort configuration ships empty. Without estimates for failing controls in the
+selected scope, Readiness hides effort panels, badges and tiers and prioritizes
+projects using measured severity, shared controls, outstanding controls and
+compliance. Proposed rule estimates are [documented for review](docs/effort-review.md)
+and are not active configuration. See the [dashboard guide](docs/project-health.md)
+for exact ordering, partial estimates and conservative history comparisons.
+
+Classic pipeline 17 embeds a compressed source bundle; selecting another branch
+does not update that bundle. Follow the [classic pipeline handover](docs/project-health.md#updating-existing-classic-pipeline-17)
+when publishing source changes. Run 121 used report-only mode, so its success
+verifies assessment/report publication without an Azure Monitor write.
+
 From this repository, run the offline PowerShell tests with
 `Invoke-Pester ./tests -Output Detailed`. Run `npm ci`,
 `npx playwright install chromium`, `npm test`, and `npm run test:browser`
 for JavaScript and both browser suites.
 Chromium also requires the host libraries listed by `playwright install-deps chromium`.
 The browser checks exercise the report in an iframe, matching the viewer's
-rendering method. A live run must also confirm the Reports page and Markdown
-summary in Azure DevOps.
+rendering method. The [live validation record](docs/project-health.md#effort-presentation-follow-up)
+documents report registration, artifact/attachment checks and the remaining
+authenticated portal-browser limitation.
 
 See [dashboard architecture](docs/architecture.md) for assessment flow, pipeline
 structure, ingestion contracts, and report publication.
@@ -147,4 +163,4 @@ hour intervals.
 
 ## DevOps assessment analytics
 
-The standalone dashboard provides Overview, Risk & Compliance, Projects & Resources, Findings Explorer, Evolution, and an evidence-based maturity placeholder. See [assessment analytics](docs/assessment-analytics.md) for pipeline setup, snapshot contracts, comparison semantics, retention limitations, tests and Azure DevOps validation.
+See [Project Health & Compliance](docs/project-health.md) for the three-tab experience, effort configuration, display contract, comparison semantics, screenshots and validation. The [assessment analytics](docs/assessment-analytics.md) notes describe the underlying snapshot and artifact history contracts.

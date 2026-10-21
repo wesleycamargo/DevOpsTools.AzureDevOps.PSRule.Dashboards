@@ -1,5 +1,9 @@
 # Assessment analytics
 
+The current three-tab presentation is documented in [Project Health & Compliance](project-health.md).
+The six-view description below records the earlier presentation; its version 1
+snapshot and artifact-history contracts remain the underlying evidence format.
+
 PowerShell generates `psrule-dashboard.html`, `psrule-summary.md` and
 `assessment-snapshot.json`. The HTML embeds its CSS, JavaScript, current snapshot
 and available history. Open it from the pipeline's Reports page or download it
@@ -97,9 +101,11 @@ its shared-key publisher. It preserves its prior rule selection using an explici
 options for historical comparison. Its SARIF, raw-data and existing
 analysis artifacts remain available, and `psrule-results` is added for history.
 
-`PublishHtmlReport@1` requires the HTML Reports extension. Select **DevOps Assessment
-Analytics** on the run's Reports page. Evolution is integrated into the same report;
-no separate app or hosting is required.
+`PublishHtmlReport@1` requires the HTML Reports extension. The repository YAML
+names the report **DevOps Assessment Analytics**. The updated classic definition
+17 uses **Project Health & Compliance**; [run 121](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=121&view=blakyaks.azure-pipelines-html-reports.build-html-reports-tab)
+contains the current three-tab dashboard. Evolution is integrated into the same
+report; no separate app or hosting is required.
 
 ## History and retention
 
@@ -178,20 +184,22 @@ The real history collector subsequently retrieved run 116's normalized snapshot
 and run 113's legacy SARIF through the artifact API. Run 113's compliance remains
 unavailable; the pair cannot establish verified lifecycle improvement.
 
-### Remaining deployment validation
+### Subsequent authorized deployment validation
 
-Reuse definition 17; do not create another definition. Executing the unchanged
-classic pipeline does not execute this branch's updated orchestration. Automatic
-generation still requires approval to update the existing definition to use the
-reviewed dashboard source and provide its job token for historical Build Read.
-No service connection, infrastructure, secret or retention changes are required.
-
-After that update is authorized, run the existing definition in report-only mode
-twice. Verify snapshots, SARIF, Markdown, collection/history evidence and the new
-Reports tab are published by pipeline tasks, rather than attached afterward.
-Compare the two normalized runs and verify totals against detailed PSRule results.
-Use an authenticated browser to exercise filters, navigation and Evolution in the
-actual Reports viewer. Missing checkpoints must remain scope changes.
+The user subsequently authorized updating existing definition 17 for Project
+Health. Revision 13 generated and published the current three-tab report in
+report-only runs **118 and 119** on the container agent. The actual pipeline tasks
+published snapshots, SARIF, Markdown, collection/history evidence and the new
+**Project Health & Compliance** report. Run 119 retrieved run 118's snapshot and
+their comparison verified 645 matching checkpoints without claiming improvement.
+See [Project Health validation](project-health.md#live-pipeline-validation-2026-10-21)
+for run links, file size, the compressed classic-task bundle and the remaining
+signed-in portal-browser limitation. Subsequent revision **15**, validated by
+**run 121**, hides empty effort content and uses measured remediation priority.
+Its report-only job succeeded on `devcontainer-agent`; the exact published
+attachment and comparison with run 120 passed browser checks. See the
+[effort follow-up](project-health.md#effort-presentation-follow-up) for final
+evidence. No Azure Monitor ingestion was requested.
 
 ### Plan: build agent in the devcontainer
 

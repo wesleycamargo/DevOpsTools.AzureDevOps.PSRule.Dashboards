@@ -15,7 +15,10 @@ param (
     $Evaluation,
     [string]$ModuleVersion = 'Unknown',
     [string]$RuleHelpPath,
-    [string]$HistoryPath
+    [string]$HistoryPath,
+    [string]$EffortConfigPath = "$PSScriptRoot/../../config/effort.json",
+    [ValidateRange(1,1000)][int]$SharedOpportunityMinimum = 3,
+    [ValidateRange(0,100)][double]$QuickWinThreshold = 70
 )
 $ErrorActionPreference = 'Stop'
 function ConvertTo-SummaryText {
@@ -24,6 +27,7 @@ function ConvertTo-SummaryText {
     return $text -replace '[\\`*_{}\[\]()|]', '\$0'
 }
 . "$PSScriptRoot/AssessmentModel.ps1"
+. "$PSScriptRoot/ProjectHealthReport.ps1"
 $report = New-AssessmentSnapshot -Results $Results -Organization $Organization -RunId $RunId -Timestamp $Timestamp -Collection $Collection -Configuration $Configuration -Evaluation $Evaluation -ModuleVersion $ModuleVersion -RuleHelpPath $RuleHelpPath
 $records = $report.results
 $counts = [ordered]@{
@@ -53,12 +57,18 @@ if ($HistoryPath -and (Test-Path -LiteralPath $HistoryPath)) {
         }
     } catch { $history.limitations += 'Historical dataset is unreadable or unsupported; current-run evidence is retained.' }
 }
-$report.history = $history
+$display = Get-ProjectHealthDisplayData -Snapshot $report -History $history -EffortConfigPath $EffortConfigPath -SharedOpportunityMinimum $SharedOpportunityMinimum -QuickWinThreshold $QuickWinThreshold
+$static = Get-ProjectHealthStaticHtml -Snapshot $report -Display $display
 # Escape HTML-sensitive characters so result text cannot terminate the JSON script element.
-$json = ConvertTo-Json -InputObject $report -Depth 30 -Compress -EscapeHandling EscapeHtml
+$json = ConvertTo-Json -InputObject $display -Depth 30 -Compress -EscapeHandling EscapeHtml
 $template = Get-Content "$PSScriptRoot/../templates/psrule-dashboard.html" -Raw
-# Insert data last so assessment text that resembles a template marker stays literal.
-$html = $template.Replace('__DASHBOARD_CSS__', (Get-Content "$PSScriptRoot/../templates/assessment.css" -Raw)).Replace('__DASHBOARD_JS__', (Get-Content "$PSScriptRoot/../templates/assessment.js" -Raw)).Replace('__REPORT_DATA__', $json)
+# Replace template tokens once; tokens inside assessment text remain literal.
+$parts = @{
+    '__DASHBOARD_CSS__' = Get-Content "$PSScriptRoot/../templates/assessment.css" -Raw
+    '__DASHBOARD_JS__' = Get-Content "$PSScriptRoot/../templates/assessment.js" -Raw
+    '__STATIC_HEADER__' = $static.Header; '__STATIC_HEALTH__' = $static.Health; '__REPORT_DATA__' = $json
+}
+$html = [regex]::Replace($template, '__(?:DASHBOARD_CSS|DASHBOARD_JS|STATIC_HEADER|STATIC_HEALTH|REPORT_DATA)__', [Text.RegularExpressions.MatchEvaluator]{ param($match) [string]$parts[$match.Value] })
 $summary = @(
     '# PSRule Dashboard'
     ''
@@ -90,5 +100,4 @@ Set-Content (Join-Path $OutputDirectory 'psrule-dashboard.html') -Value $html -E
 Set-Content (Join-Path $OutputDirectory 'psrule-summary.md') -Value $summary -Encoding utf8
 
 # The persisted snapshot excludes the aggregated history to avoid recursive growth.
-$report.Remove('history')
 $report | ConvertTo-Json -Depth 30 -EscapeHandling EscapeHtml | Set-Content (Join-Path $OutputDirectory 'assessment-snapshot.json') -Encoding utf8
