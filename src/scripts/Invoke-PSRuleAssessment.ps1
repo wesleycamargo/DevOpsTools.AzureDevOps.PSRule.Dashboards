@@ -3,10 +3,16 @@ param (
     [Parameter(Mandatory)]
     [string]$ModuleManifestPath,
     [string]$Organization = 'ai-experiments',
-    [string]$OrganizationId = '3b022c28-683d-4d7e-87a5-bd8198332011',
-    [string]$ResourceGroupName = 'rg-psrule-azuredevops-weu'
+    [string]$OrganizationId = '3b022c28-683d-4d7e-87a5-bd8198332011'
 )
 $ErrorActionPreference = 'Stop'
+$exportPath = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'raw-export'
+$reportDirectory = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'reports'
+# Self-hosted agents may reuse their workspace; never assess files from an earlier attempt.
+foreach ($directory in @($exportPath, $reportDirectory)) {
+    if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
+    New-Item $directory -ItemType Directory -Force | Out-Null
+}
 if (-not (Get-Module -ListAvailable PSRule | Where-Object Version -eq ([version]'2.9.0'))) {
     Install-Module PSRule -RequiredVersion 2.9.0 -Scope CurrentUser -Force -SkipPublisherCheck
 }
@@ -15,13 +21,11 @@ Import-Module $ModuleManifestPath -Force
 $accessToken = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
 if ($LASTEXITCODE -ne 0 -or -not $accessToken) { throw 'Could not acquire Azure DevOps authentication.' }
 Connect-AzDevOps -Organization $Organization -OrganizationId $OrganizationId -AccessToken $accessToken
-$exportPath = Join-Path $env:PIPELINE_WORKSPACE "psrule-export-$($env:BUILD_BUILDID)"
-New-Item $exportPath -ItemType Directory -Force | Out-Null
-Export-AzDevOpsOrganizationRuleData -Organization $Organization -OrganizationId $OrganizationId -OutputPath $exportPath
+Export-AzDevOpsOrganizationRuleData -Organization $Organization -OrganizationId $OrganizationId -OutputPath $exportPath -CompletenessReportPath (Join-Path $reportDirectory 'collection-status.json') -Strict
 # Organization exports live in project subfolders; select actual files recursively.
 $inputFiles = @(Get-ChildItem $exportPath -File -Recurse -Filter '*.json' | Select-Object -ExpandProperty FullName)
 if ($inputFiles.Count -eq 0) { throw 'The organization export produced no JSON input files.' }
-$reportPath = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'psrule-results.sarif'
+$reportPath = Join-Path $reportDirectory 'psrule-results.sarif'
 # Capture expected assertion failures without interrupting PSRule's result writer.
 $option = New-PSRuleOption -OutputStyle Plain -OutputAs Detail
 $evaluationResults = $null
@@ -39,28 +43,7 @@ if (@($results | Where-Object Outcome -eq 'Error').Count) { throw 'The assessmen
 $failedCount = @($results | Where-Object Outcome -eq 'Fail').Count
 Write-Host "Assessment evaluated $($results.Count) results, including $failedCount failures."
 $runId = "$Organization/$($env:BUILD_BUILDID)"
-# Retain run reports even if Azure workbook publication fails afterwards.
-& "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Results $results -Organization $Organization -RunId $runId -OutputDirectory $env:BUILD_ARTIFACTSTAGINGDIRECTORY
-Write-Host "##vso[task.uploadsummary]$(Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'psrule-summary.md')"
+# Generate the dashboard entirely within this pipeline run.
+& "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Results $results -Organization $Organization -RunId $runId -OutputDirectory $reportDirectory
+Write-Host "##vso[task.uploadsummary]$(Join-Path $reportDirectory 'psrule-summary.md')"
 Write-Host '##vso[task.setvariable variable=PSRuleReportReady]true'
-$outputs = az deployment group show --resource-group $ResourceGroupName --name psrule-workbooks --query properties.outputs -o json | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0) { throw 'Could not read the dashboard ingestion configuration.' }
-& "$PSScriptRoot/Publish-PSRuleWorkbookResults.ps1" -Results $results -RunId $runId -IngestionEndpoint $outputs.ingestionEndpoint.value -RuleImmutableId $outputs.ingestionRuleImmutableId.value
-$queryToken = az account get-access-token --resource https://api.loganalytics.io --query accessToken -o tsv
-if ($LASTEXITCODE -ne 0) { throw 'Could not acquire query authentication.' }
-$queryUri = "https://api.loganalytics.azure.com/v1/workspaces/$($outputs.workspaceId.value)/query"
-$query = "PSRule_CL | where RunId_s == '$runId' | summarize Records=count(), Failed=countif(Outcome_s == 'Fail'), Passed=countif(Outcome_s == 'Pass')"
-$verified = $false
-for ($attempt = 0; $attempt -lt 45; $attempt++) {
-    $response = Invoke-RestMethod -Method Post -Uri $queryUri -Headers @{Authorization = "Bearer $queryToken"} -ContentType 'application/json' -Body (@{query=$query} | ConvertTo-Json -Compress)
-    $counts = $response.tables[0].rows[0]
-    if ($counts[0] -eq $results.Count -and $counts[1] -eq $failedCount) {
-        Write-Host "Verified published assessment $runId in Log Analytics: total=$($counts[0]), failed=$($counts[1]), passed=$($counts[2])."
-        $verified = $true
-        break
-    }
-    if ($counts[0] -gt $results.Count) { throw 'The published run contains unexpected duplicate records.' }
-    Write-Host "Waiting for ingestion: $($counts[0])/$($results.Count) records visible."
-    Start-Sleep -Seconds 20
-}
-if (-not $verified) { throw 'Ingestion verification timed out before all assessment results appeared.' }

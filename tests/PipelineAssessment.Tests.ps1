@@ -1,5 +1,5 @@
 BeforeAll {
-    $assessmentPath = (Resolve-Path "$PSScriptRoot/../src/scripts/Invoke-PSRuleWorkbookAssessment.ps1").Path
+    $assessmentPath = (Resolve-Path "$PSScriptRoot/../src/scripts/Invoke-PSRuleAssessment.ps1").Path
     function Invoke-TestAssessment {
         param([string]$Scenario, [string]$OutputDirectory)
         # Isolate collector/PSRule/Azure adapters while running the real orchestration and report writer.
@@ -19,12 +19,22 @@ BeforeAll {
                 function Import-Module { }
                 function Connect-AzDevOps { }
                 function Export-AzDevOpsOrganizationRuleData {
-                    param($OutputPath)
-                    '{}' | Set-Content (Join-Path $OutputPath 'input.json')
+                    param($OutputPath, $CompletenessReportPath, [switch]$Strict)
+                    if (-not $Strict) { throw 'Strict collection was not requested.' }
+                    if ($CompletenessReportPath.StartsWith($OutputPath)) { throw 'Completeness metadata is inside rule inputs.' }
+                    '{"complete":true}' | Set-Content $CompletenessReportPath
+                    $project = New-Item (Join-Path $OutputPath 'test-project') -ItemType Directory -Force
+                    '{}' | Set-Content (Join-Path $project.FullName 'input.json')
+                    if ($Scenario -eq 'Incomplete') {
+                        '{"complete":false}' | Set-Content $CompletenessReportPath
+                        throw 'Collection incomplete.'
+                    }
                 }
                 function New-PSRuleOption { }
                 function Assert-PSRule {
-                    param($ResultVariable, $OutputPath)
+                    param($ResultVariable, $OutputPath, $InputPath)
+                    if ($Scenario -eq 'Incomplete') { throw 'Incomplete data reached evaluation.' }
+                    if (@($InputPath).Count -ne 1 -or $InputPath[0] -notmatch 'input.json$') { throw 'Unexpected assessment inputs.' }
                     $results = @('Pass', 'Fail' | ForEach-Object {
                         [pscustomobject]@{
                             RuleName = 'Test.Rule'; TargetName = 'test-resource'; TargetType = 'Azure.DevOps.Project'
@@ -39,15 +49,13 @@ BeforeAll {
                 }
                 function az {
                     $global:LASTEXITCODE = 0
-                    if ($args[0] -eq 'deployment') {
-                        return '{"ingestionEndpoint":{"value":"https://example.test"},"ingestionRuleImmutableId":{"value":"dcr-test"},"workspaceId":{"value":"workspace-test"}}'
+                    if (($args -join ' ') -ne 'account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv') {
+                        throw "Unexpected Azure operation: $args"
                     }
                     return 'test-token'
                 }
-                function Invoke-WebRequest {
-                    if ($Scenario -eq 'IngestionFailure') { throw 'Ingestion failed.' }
-                }
-                function Invoke-RestMethod { return '{"tables":[{"rows":[[2,1,1]]}]}' | ConvertFrom-Json }
+                function Invoke-WebRequest { throw 'Unexpected external publication.' }
+                function Invoke-RestMethod { throw 'Unexpected Log Analytics request.' }
                 try {
                     & $AssessmentPath -ModuleManifestPath 'test-module.psd1' -Organization test-org
                     [pscustomobject]@{ Error = $null }
@@ -65,28 +73,44 @@ BeforeAll {
 }
 
 Describe 'Assessment report integration' {
-    It 'retains the HTML, Markdown, and SARIF and announces report readiness before ingestion fails' {
-        $output = "$TestDrive/ingestion-failure"
-        $assessment = Invoke-TestAssessment IngestionFailure $output
-        $assessment.Error | Should -Be 'Ingestion failed.'
-        Test-Path "$output/psrule-dashboard.html" | Should -BeTrue
-        Test-Path "$output/psrule-summary.md" | Should -BeTrue
-        Test-Path "$output/psrule-results.sarif" | Should -BeTrue
-        $assessment.Messages | Should -Match '##vso\[task.uploadsummary\]'
-        $assessment.Messages | Should -Match '##vso\[task.setvariable variable=PSRuleReportReady\]true'
+    It 'generates pipeline reports without Azure publishing and retains raw project exports' {
+        $output = "$TestDrive/success"
+        $assessment = Invoke-TestAssessment Success $output
+        $assessment.Error | Should -BeNullOrEmpty
+        foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json')) {
+            Test-Path "$output/reports/$file" | Should -BeTrue
+        }
+        Test-Path "$output/raw-export/test-project/input.json" | Should -BeTrue
+        Test-Path "$output/raw-export/collection-status.json" | Should -BeFalse
+        $assessment.Messages | Should -Match 'task.uploadsummary'
+        $assessment.Messages | Should -Match 'PSRuleReportReady.*true'
     }
 
-    It 'keeps rule violations as findings and verifies workbook publishing' {
-        $assessment = Invoke-TestAssessment Success "$TestDrive/success"
-        $assessment.Error | Should -BeNullOrEmpty
-        $assessment.Messages | Should -Match 'total=2, failed=1, passed=1'
+    It 'retains partial raw exports and diagnostics when strict collection fails' {
+        $output = "$TestDrive/incomplete"
+        $assessment = Invoke-TestAssessment Incomplete $output
+        $assessment.Error | Should -Be 'Collection incomplete.'
+        Test-Path "$output/raw-export/test-project/input.json" | Should -BeTrue
+        Test-Path "$output/reports/collection-status.json" | Should -BeTrue
+        Test-Path "$output/reports/psrule-results.sarif" | Should -BeFalse
+        $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
+    }
+
+    It 'clears stale exports and reports before a repeated attempt' {
+        $output = "$TestDrive/retry"
+        $null = Invoke-TestAssessment Success $output
+        '{}' | Set-Content "$output/raw-export/stale.json"
+        $assessment = Invoke-TestAssessment Incomplete $output
+        $assessment.Error | Should -Be 'Collection incomplete.'
+        Test-Path "$output/raw-export/stale.json" | Should -BeFalse
+        Test-Path "$output/reports/psrule-dashboard.html" | Should -BeFalse
     }
 
     It 'does not publish a dashboard for zero evaluated results' {
         $output = "$TestDrive/empty"
         $assessment = Invoke-TestAssessment Empty $output
         $assessment.Error | Should -Match 'zero rule results'
-        Test-Path "$output/psrule-dashboard.html" | Should -BeFalse
+        Test-Path "$output/reports/psrule-dashboard.html" | Should -BeFalse
         $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
     }
 
@@ -94,7 +118,7 @@ Describe 'Assessment report integration' {
         $output = "$TestDrive/execution-error"
         $assessment = Invoke-TestAssessment ExecutionError $output
         $assessment.Error | Should -Match 'rule execution errors'
-        Test-Path "$output/psrule-dashboard.html" | Should -BeFalse
+        Test-Path "$output/reports/psrule-dashboard.html" | Should -BeFalse
         $assessment.Messages | Should -Not -Match 'task.uploadsummary'
     }
 }
