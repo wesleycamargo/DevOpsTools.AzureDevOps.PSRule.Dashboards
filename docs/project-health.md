@@ -12,7 +12,8 @@ tabs, shared filters, sorting, comparisons and the drawer.
   confidence, sortable project/category heatmap, failure shares, separate
   organization controls and findings with all outcomes.
 - Compliance Readiness: measured compliance and outstanding controls, read-only
-  estimated effort, recommended order, measured-axis matrix and shared controls.
+  estimated effort when available, recommended order, measured-axis matrix and
+  shared controls. Empty effort content is hidden.
 - Evolution: chronological runs A/B, optional like-for-like population, lifecycle,
   project trends, category/run values and coverage. Single-run, legacy and
   incompatible histories show explicit limitations rather than unsupported deltas.
@@ -40,8 +41,14 @@ failure in at least three distinct selected projects, independent of resource
 counts. Readiness: zero outstanding → Compliant; otherwise any Unknown effort →
 Needs estimate; otherwise ≥70% without High effort → Quick win; otherwise Planned.
 Order: Quick win → Planned → Needs estimate → Compliant, then fewest outstanding
-controls, then highest compliance. The page prints these rules and a justification
-for each project. Readiness is not maturity or a PSRule score.
+controls, then highest compliance. These tiers and this order apply only when at
+least one failing control in the selected scope has a known estimate. Otherwise,
+projects with failures come first, ordered by highest failing severity, most
+shared controls, fewest outstanding controls, then lowest compliance (name breaks
+ties). Projects without failures follow; unavailable compliance sorts last in a
+tie. Shared controls use the configured project threshold and exclude organization
+findings. The page prints the active order and evidence for each project.
+Readiness is not maturity or a PSRule score.
 
 [`config/effort.json`](../config/effort.json) ships empty. Only an owner-provided
 classification assigns effort. Example syntax, not recommended estimates:
@@ -57,6 +64,13 @@ Rule overrides win, including explicit Unknown; category defaults follow; missin
 values stay Unknown. Values are Low, Medium, High or Unknown, without numeric
 scores/time estimates. Invalid values fail generation clearly. The read-only page
 shows the config source; finding details show where the value originated.
+When no failing control in scope has a known estimate, the config panel, estimate
+legend, effort badges, finding effort section and effort-dependent tiers are
+hidden. The matrix then uses measured compliance health bands. Filtering can
+switch between measured priority and effort-based readiness. Partially estimated
+scopes retain Unknown and Needs estimate for unclassified failing controls.
+Proposed rule-level estimates and their review assumptions are recorded in
+[`effort-review.md`](effort-review.md); they are not loaded as configuration.
 Exporter options: `-EffortConfigPath`, `-SharedOpportunityMinimum` (3), and
 `-QuickWinThreshold` (70). Defaults require no pipeline YAML edits.
 
@@ -119,6 +133,7 @@ calculation suites and both browser suites also pass.
 
 Production screenshots use only these fixtures:
 [Health](images/project-health.png), [Readiness](images/project-readiness.png),
+[Readiness without estimates](images/project-readiness-measured.png),
 [Evolution](images/project-evolution.png).
 
 Read-only inspection and offline reevaluation of run 116 preserved all 645
@@ -150,7 +165,7 @@ and opened the exact report attachment in a sandboxed iframe. All three tabs,
 filter persistence, dark theme and the real A/B comparison passed with zero page
 errors or external requests. Run 118 → 119 has **645 comparable checkpoints**:
 388 persistent failures, zero new/resolved/recurring/not-reassessed findings.
-The latest artifact HTML is **1,167,303 bytes (1.17 MB)** including its additional
+Run 119's artifact HTML is **1,167,303 bytes (1.17 MB)** including its additional
 history, about **34% smaller** than the brief's 1.76 MB baseline.
 
 The approved publisher is the installed BlakYaks `PublishHtmlReport@1`, using
@@ -161,13 +176,28 @@ An automated check of the signed-in Reports portal itself remains unavailable:
 the ephemeral browser redirects to Microsoft sign-in. This limitation does not
 affect the verified published attachment or its standalone/iframe functionality.
 
+### Effort presentation follow-up
+
+The approved empty-estimate presentation was published through the same definition
+17 in report-only runs **120** and **121**, both successful on the container agent.
+The final [run 121 report](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=121&view=blakyaks.azure-pipelines-html-reports.build-html-reports-tab)
+uses revision **15**, including the adjusted JavaScript-disabled explanation.
+Its exact report attachment passed sandboxed browser checks for measured priority,
+expected project ordering, hidden empty effort configuration/tier badges, all three
+tabs, filters, theme and history comparison, with zero page errors or external
+requests. Run 120 → 121 retains 645 comparable checkpoints and 388 persistent
+failures, with no new/resolved/recurring/not-reassessed findings. Assessment totals
+remain 257 Pass / 388 Fail. The HTML is **1,410,921 bytes**, including the accumulated
+history. Configuration remains unset; proposed estimates are documented separately
+for owner review and have no effect on readiness.
+
 ### Classic task packaging
 
 `src/scripts/New-ProjectHealthPipelineBundle.ps1` returns a compressed bootstrap
 for the existing classic assessment task. It ZIPs the ten source/config files,
 preserves their repository layout and writes them into the job's temporary
 directory before invoking the existing assessment entry point. This avoids placing
-170 KB in one task environment input. The deployed bootstrap is **48,861 bytes**;
+170 KB in one task environment input. The current bootstrap is **49,677 bytes**;
 the script rejects inputs of 64 KB or larger. Exact source bytes, worker launch
 and report-only arguments have regression coverage. Regenerate this bootstrap
 when updating the classic definition; changing a source branch alone does not

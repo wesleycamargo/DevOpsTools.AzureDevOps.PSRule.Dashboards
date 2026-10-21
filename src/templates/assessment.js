@@ -358,6 +358,45 @@
         justification,
       };
     }
+    const hasEffortEstimates = (rows, config) =>
+      rows.some(
+        (r) =>
+          r.outcome === "Fail" &&
+          effortFor(r.ruleName, r.category, config).value !== "Unknown",
+      );
+    function measuredProjects(projects, rows, minimum = 3) {
+      const sharedRules = new Set(shared(rows, minimum).map((r) => r.rule));
+      return projects
+        .map((p) => {
+          const failing = rows.filter(
+            (r) => r.project === p.project && r.outcome === "Fail",
+          );
+          const severityRank = Math.max(
+            0,
+            ...failing.map((r) => Assessment.severity[r.severity] || 0),
+          );
+          return {
+            ...p,
+            severityRank,
+            highestSeverity: failing.length
+              ? Object.keys(Assessment.severity).find(
+                  (key) => Assessment.severity[key] === severityRank,
+                )
+              : "None",
+            sharedControls: p.controls.filter((rule) => sharedRules.has(rule))
+              .length,
+          };
+        })
+        .sort(
+          (a, b) =>
+            Number(b.outstanding > 0) - Number(a.outstanding > 0) ||
+            b.severityRank - a.severityRank ||
+            b.sharedControls - a.sharedControls ||
+            a.outstanding - b.outstanding ||
+            (a.compliance ?? 101) - (b.compliance ?? 101) ||
+            a.project.localeCompare(b.project),
+        );
+    }
     const tiers = {
       "Quick win": 0,
       Planned: 1,
@@ -548,6 +587,8 @@
       bandClass,
       collectionState,
       effortFor,
+      hasEffortEstimates,
+      measuredProjects,
       projectSummary,
       orderProjects,
       shared,
@@ -1161,53 +1202,61 @@
           );
           return;
         }
+        const rows = selected(snapshot).map((r) => ({
+          ...r,
+          severity: r.severity || report.rules[r.ruleName]?.severity,
+        }));
+        const estimates = H.hasEffortEstimates(rows, report.effort);
         const legend = panel(parent, "How to read this view");
         legend.append(
           badge("MEASURED"),
-          document.createTextNode(" from assessment results "),
-          badge("ESTIMATED", "ph-estimated"),
-          document.createTextNode(" effort configuration, not PSRule "),
-          badge("UNKNOWN", "ph-unknown"),
-          document.createTextNode(" no estimate configured."),
+          document.createTextNode(" from assessment results."),
         );
-        const config = panel(
-          parent,
-          "Effort configuration · read only",
-          `${report.effort.source}. Rule overrides take precedence over category defaults. Anything unconfigured is Unknown.`,
-        );
-        const configured = [
-          ...Object.entries(report.effort.categoryDefaults || {}).map(
-            ([key, value]) => ["Category default", key, value],
-          ),
-          ...Object.entries(report.effort.ruleOverrides || {}).map(
-            ([key, value]) => ["Rule override", key, value],
-          ),
-        ];
-        table(config, ["Source", "Category / rule", "Effort"], configured);
-        if (!configured.length)
-          config.append(
-            node(
-              "p",
-              "No effort classifications configured. All outstanding controls need an estimate.",
+        if (estimates) {
+          legend.append(
+            badge("ESTIMATED", "ph-estimated"),
+            document.createTextNode(" effort configuration, not PSRule "),
+            badge("UNKNOWN", "ph-unknown"),
+            document.createTextNode(" no estimate configured."),
+          );
+          const config = panel(
+            parent,
+            "Effort configuration · read only",
+            `${report.effort.source}. Rule overrides take precedence over category defaults. Anything unconfigured is Unknown.`,
+          );
+          const configured = [
+            ...Object.entries(report.effort.categoryDefaults || {}).map(
+              ([key, value]) => ["Category default", key, value],
             ),
-          );
-        const rows = selected(snapshot),
-          projects = H.orderProjects(
-            currentProjects(snapshot).map((project) => ({
-              project,
-              ...H.projectSummary(
-                rows.filter((r) => r.project === project),
-                report.effort,
-                report.settings.quickWinThreshold,
-              ),
-            })),
-          );
+            ...Object.entries(report.effort.ruleOverrides || {}).map(
+              ([key, value]) => ["Rule override", key, value],
+            ),
+          ];
+          table(config, ["Source", "Category / rule", "Effort"], configured);
+        }
+        const summaries = currentProjects(snapshot).map((project) => ({
+          project,
+          ...H.projectSummary(
+            rows.filter((r) => r.project === project),
+            report.effort,
+            report.settings.quickWinThreshold,
+          ),
+        }));
+        const projects = estimates
+          ? H.orderProjects(summaries)
+          : H.measuredProjects(
+              summaries,
+              rows,
+              report.settings.sharedOpportunityMinimum,
+            );
         const cols = node("div", undefined, "ph-columns");
         parent.append(cols);
         const ordered = panel(
           cols,
           "Recommended remediation order",
-          `Order: Quick win → Planned → Needs estimate → Compliant; then fewest outstanding controls, then highest compliance. Quick win requires ≥${report.settings.quickWinThreshold}% and no High/Unknown effort. Compliant = zero outstanding; any Unknown effort = Needs estimate; otherwise Planned.`,
+          estimates
+            ? `Order: Quick win → Planned → Needs estimate → Compliant; then fewest outstanding controls, then highest compliance. Quick win requires ≥${report.settings.quickWinThreshold}% and no High/Unknown effort. Compliant = zero outstanding; any Unknown effort = Needs estimate; otherwise Planned.`
+            : "Measured priority: projects with failures first; highest failing severity, then most shared controls, fewest outstanding controls, then lowest compliance. Projects without failures follow. No effort estimates are available in this scope.",
         );
         const list = node("ol", undefined, "ph-rank");
         ordered.append(list);
@@ -1216,17 +1265,26 @@
           li.append(
             button(p.project, () => openDrawer({ project: p.project })),
             document.createTextNode(" "),
-            badge(
-              p.tier,
-              `ph-tier-${p.tier.toLowerCase().replaceAll(" ", "-")}`,
-            ),
+            ...(estimates
+              ? [
+                  badge(
+                    p.tier,
+                    `ph-tier-${p.tier.toLowerCase().replaceAll(" ", "-")}`,
+                  ),
+                ]
+              : []),
             node(
               "strong",
               ` ${percent(p.compliance)} · ${p.outstanding} outstanding controls`,
             ),
-            node("p", `${p.failed} failed results. ${p.justification}`),
+            node(
+              "p",
+              estimates
+                ? `${p.failed} failed results. ${p.justification}`
+                : `${p.failed} failed results · highest failing severity: ${p.highestSeverity} · ${p.sharedControls} shared controls.`,
+            ),
           );
-          for (const e of p.efforts)
+          for (const e of estimates ? p.efforts : [])
             li.append(
               badge(
                 e.value,
@@ -1238,7 +1296,9 @@
         const matrix = panel(
           cols,
           "Compliance vs outstanding controls",
-          "Both axes are MEASURED · colour/label = readiness tier, which uses ESTIMATED effort.",
+          estimates
+            ? "Both axes are MEASURED · colour/label = readiness tier, which uses ESTIMATED effort."
+            : "Both axes are MEASURED · colour/label = compliance health band. No effort-based tiers are assigned.",
         );
         const svg = document.createElementNS(
           "http://www.w3.org/2000/svg",
@@ -1274,7 +1334,7 @@
         const max = Math.max(1, ...projects.map((p) => p.outstanding));
         const points = new Map();
         for (const p of projects) {
-          const key = `${p.compliance}/${p.outstanding}/${p.tier}`;
+          const key = `${p.compliance}/${p.outstanding}/${estimates ? p.tier : H.band(p.compliance)}`;
           if (!points.has(key)) points.set(key, []);
           points.get(key).push(p);
         }
@@ -1290,14 +1350,18 @@
             r: 8,
             tabindex: 0,
             role: "button",
-            "aria-label": `${names}: ${percent(p.compliance)}, ${p.outstanding} controls, ${p.tier}`,
+            "aria-label": `${names}: ${percent(p.compliance)}, ${p.outstanding} controls, ${estimates ? p.tier : H.band(p.compliance)}`,
           });
           dot.style.fill = {
             "Quick win": "#107c10",
             Planned: "var(--ph-link)",
             "Needs estimate": "#888",
             Compliant: "#107c10",
-          }[p.tier];
+            Critical: "#a4262c",
+            "At risk": "#ca5010",
+            Fair: "#8a6d00",
+            Healthy: "#107c10",
+          }[estimates ? p.tier : H.band(p.compliance)];
           dot.onclick = () =>
             group.length === 1
               ? openDrawer({ project: p.project })
@@ -1325,12 +1389,17 @@
         }
         table(
           matrix,
-          ["Project", "Compliance", "Outstanding", "Tier"],
+          [
+            "Project",
+            "Compliance",
+            "Outstanding",
+            estimates ? "Tier" : "Health",
+          ],
           projects.map((p) => [
             p.project,
             percent(p.compliance),
             p.outstanding,
-            p.tier,
+            estimates ? p.tier : H.band(p.compliance),
           ]),
         );
         const opportunities = panel(
@@ -1756,13 +1825,14 @@
               ),
             );
           const effort = H.effortFor(row.ruleName, row.category, report.effort);
-          detail.append(
-            node("h3", "Effort"),
-            node(
-              "p",
-              `${effort.value} · ${effort.source} · ${report.effort.source}`,
-            ),
-          );
+          if (H.hasEffortEstimates(selected(snapshot), report.effort))
+            detail.append(
+              node("h3", "Effort"),
+              node(
+                "p",
+                `${effort.value} · ${effort.source} · ${report.effort.source}`,
+              ),
+            );
           for (const link of [
             { url: rule.documentation, title: "Rule documentation" },
             ...(rule.references || []),

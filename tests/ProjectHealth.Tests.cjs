@@ -64,6 +64,50 @@ assert.equal(
 );
 assert.equal(H.projectSummary([row("a", "Pass")], effort).tier, "Compliant");
 assert.equal(H.projectSummary([row("a")], {}).tier, "Needs estimate");
+assert.equal(H.hasEffortEstimates([row("a")], {}), false);
+assert.equal(H.hasEffortEstimates([row("a")], effort), true);
+assert.equal(H.hasEffortEstimates([row("a", "Pass")], effort), false);
+assert.equal(
+  H.hasEffortEstimates([row("a")], {
+    ...effort,
+    ruleOverrides: { R: "Unknown" },
+  }),
+  false,
+);
+const measuredRows = [
+  { ...row("critical", "Fail", "Critical"), severity: "Critical" },
+  { ...row("shared", "Fail", "Shared"), severity: "High" },
+  { ...row("private", "Fail", "Private", "Other"), severity: "High" },
+  { ...row("low", "Fail", "Low"), severity: "Low" },
+  row("pass", "Pass", "Clear"),
+  row("unknown", "Fail", "Unknown", "Other"),
+];
+const measuredSummaries = [
+  "Clear",
+  "Unknown",
+  "Low",
+  "Private",
+  "Shared",
+  "Critical",
+  "Missing",
+].map((project) => ({
+  project,
+  ...H.projectSummary(
+    measuredRows.filter((r) => r.project === project),
+    {},
+  ),
+}));
+const measuredOrder = H.measuredProjects(measuredSummaries, measuredRows);
+assert.deepEqual(
+  measuredOrder.map((p) => p.project),
+  ["Critical", "Shared", "Private", "Low", "Unknown", "Clear", "Missing"],
+);
+assert.equal(measuredOrder[0].sharedControls, 1);
+assert.equal(measuredOrder[1].highestSeverity, "High");
+assert.equal(
+  measuredOrder.find((p) => p.project === "Missing").compliance,
+  null,
+);
 const mostlyPassing = [
   row("a"),
   ...Array.from({ length: 3 }, (_, i) => row(String(i), "Pass")),

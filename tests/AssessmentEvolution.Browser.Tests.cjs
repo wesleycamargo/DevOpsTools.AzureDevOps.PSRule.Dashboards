@@ -47,6 +47,88 @@ const { chromium } = require("playwright");
         ),
       );
     };
+    const originalEffort = payload.effort;
+    payload.effort = { categoryDefaults: {}, ruleOverrides: {} };
+    await render(payload);
+    await page.getByRole("tab", { name: /^Compliance Readiness/ }).click();
+    let readiness = page.locator("#ph-readiness");
+    assert.match(await readiness.textContent(), /Measured priority/);
+    assert.equal(
+      await readiness
+        .getByRole("heading", { name: /Effort configuration/ })
+        .count(),
+      0,
+    );
+    assert.equal(await readiness.locator('[class*="ph-tier-"]').count(), 0);
+    assert.doesNotMatch(
+      await readiness.textContent(),
+      /Needs estimate|Quick win|ESTIMATED|UNKNOWN/,
+    );
+    assert.match(
+      await readiness.textContent(),
+      /highest failing severity: High/,
+    );
+    assert.match(
+      await readiness.textContent(),
+      /colour\/label = compliance health band/,
+    );
+    await page
+      .locator(".ph-rank")
+      .getByRole("button", { name: "Atlas", exact: true })
+      .click();
+    await page
+      .locator("#ph-detail")
+      .getByRole("button", { name: "Repos", exact: true })
+      .click();
+    await page
+      .locator("#ph-detail")
+      .getByRole("button", { name: "Fixture.Repos.Protection", exact: true })
+      .click();
+    await page
+      .locator("#ph-detail")
+      .getByRole("button", { name: "Atlas / resource-1", exact: true })
+      .click();
+    assert.equal(
+      await page
+        .locator("#ph-detail")
+        .getByRole("heading", { name: "Effort", exact: true })
+        .count(),
+      0,
+    );
+    payload.effort = {
+      categoryDefaults: {},
+      ruleOverrides: { "Fixture.Repos.Protection": "Unknown" },
+    };
+    await render(payload);
+    await page.getByRole("tab", { name: /^Compliance Readiness/ }).click();
+    assert.match(
+      await page.locator("#ph-readiness").textContent(),
+      /Measured priority/,
+    );
+    payload.effort = {
+      categoryDefaults: {},
+      ruleOverrides: { "Fixture.Repos.Protection": "Low" },
+    };
+    await render(payload);
+    await page.getByRole("tab", { name: /^Compliance Readiness/ }).click();
+    assert.match(
+      await page.locator("#ph-readiness").textContent(),
+      /Needs estimate/,
+    );
+    assert.equal(
+      await page.getByRole("heading", { name: /Effort configuration/ }).count(),
+      1,
+    );
+    await page.locator("#ph-category").selectOption("Pipelines");
+    assert.match(
+      await page.locator("#ph-readiness").textContent(),
+      /Measured priority/,
+    );
+    assert.equal(
+      await page.getByRole("heading", { name: /Effort configuration/ }).count(),
+      0,
+    );
+    payload.effort = originalEffort;
     payload.legacy = true;
     payload.coverage = "Legacy failures-only";
     await render(payload);
