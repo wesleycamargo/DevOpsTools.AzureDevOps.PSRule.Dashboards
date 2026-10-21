@@ -143,3 +143,7 @@ hour intervals.
 - [PSRule](https://microsoft.github.io/PSRule) by [@BernieWhite](https://github.com/BernieWhite)
 - [PSRule.Monitor](https://github.com/microsoft/PSRule.Monitor) by [@BernieWhite](https://github.com/BernieWhite)
 - [PSRule.Rules.AzureDevOps](https://github.com/cloudyspells/PSRule.Rules.AzureDevOps) by [Roderick Bant](https://github.com/webtonize)
+
+## DevOps assessment analytics
+
+The standalone dashboard provides Overview, Risk & Compliance, Projects & Resources, Findings Explorer, Evolution, and an evidence-based maturity placeholder. See [assessment analytics](docs/assessment-analytics.md) for pipeline setup, snapshot contracts, comparison semantics, retention limitations, tests and Azure DevOps validation.

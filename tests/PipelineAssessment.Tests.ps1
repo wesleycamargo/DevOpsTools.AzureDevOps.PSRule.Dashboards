@@ -19,7 +19,8 @@ BeforeAll {
                 function Import-Module { }
                 function Connect-AzDevOps { }
                 function Export-AzDevOpsOrganizationRuleData {
-                    param($OutputPath)
+                    param($OutputPath, $CompletenessReportPath)
+                    @{ Status = $(if ($Scenario -eq 'Partial') { 'Partial' } else { 'Complete' }); Projects = @() } | ConvertTo-Json | Set-Content $CompletenessReportPath
                     '{}' | Set-Content (Join-Path $OutputPath 'input.json')
                 }
                 function New-PSRuleOption { }
@@ -47,7 +48,7 @@ BeforeAll {
                 function Invoke-WebRequest {
                     if ($Scenario -eq 'IngestionFailure') { throw 'Ingestion failed.' }
                 }
-                function Invoke-RestMethod { return '{"tables":[{"rows":[[2,1,1]]}]}' | ConvertFrom-Json }
+                function Invoke-RestMethod { param($Uri); if ($Uri -like '*connectionData') { return @{instanceId='00000000-0000-0000-0000-000000000001'} }; return '{"tables":[{"rows":[[2,1,1]]}]}' | ConvertFrom-Json }
                 try {
                     & $AssessmentPath -ModuleManifestPath 'test-module.psd1' -Organization test-org
                     [pscustomobject]@{ Error = $null }
@@ -90,11 +91,22 @@ Describe 'Assessment report integration' {
         $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
     }
 
-    It 'does not publish a success-looking dashboard when rule execution fails' {
+    It 'retains an error report and blocks workbook publishing when rule execution fails' {
         $output = "$TestDrive/execution-error"
         $assessment = Invoke-TestAssessment ExecutionError $output
         $assessment.Error | Should -Match 'rule execution errors'
-        Test-Path "$output/psrule-dashboard.html" | Should -BeFalse
-        $assessment.Messages | Should -Not -Match 'task.uploadsummary'
+        Test-Path "$output/psrule-dashboard.html" | Should -BeTrue
+        Test-Path "$output/assessment-snapshot.json" | Should -BeTrue
+        $assessment.Messages | Should -Match 'task.uploadsummary'
+    }
+}
+
+Describe 'Assessment completeness integration' {
+    It 'retains partial collection reports and blocks workbook publishing' {
+        $output = "$TestDrive/partial"
+        $assessment = Invoke-TestAssessment Partial $output
+        $assessment.Error | Should -Match 'Collection is incomplete'
+        (Get-Content "$output/assessment-snapshot.json" -Raw | ConvertFrom-Json).collection.Status | Should -Be Partial
+        Test-Path "$output/psrule-dashboard.html" | Should -BeTrue
     }
 }

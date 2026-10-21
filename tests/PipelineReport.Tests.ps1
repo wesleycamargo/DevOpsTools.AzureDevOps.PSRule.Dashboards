@@ -87,3 +87,16 @@ Describe 'Pipeline assessment report' {
         Test-Path "$TestDrive/empty/psrule-dashboard.html" | Should -BeFalse
     }
 }
+
+Describe 'Report contract and history resilience' {
+    It 'validates the emitted snapshot against the documented JSON schema' {
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive
+        Get-Content "$TestDrive/assessment-snapshot.json" -Raw | Test-Json -SchemaFile "$PSScriptRoot/../docs/assessment-snapshot.schema.json" | Should -BeTrue
+    }
+    It 'keeps current evidence when an imported historical dataset is corrupt' {
+        'invalid json' | Set-Content "$TestDrive/corrupt.json"
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive -HistoryPath "$TestDrive/corrupt.json"
+        Get-Content "$TestDrive/psrule-dashboard.html" -Raw | Should -Match 'Historical dataset is unreadable'
+        Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
+    }
+}

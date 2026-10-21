@@ -99,6 +99,9 @@ stages:
 
           - task: PowerShell@2
             displayName: "Run PSRule Analysis"
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              PSRULE_ORGANIZATION: $(targetAzureDevOpsOrganizationName)
             inputs:
               filePath: $(Pipeline.Workspace)/s/src/scripts/Invoke-AzDevOpsPSRuleAnalysis.ps1
               pwsh: true
@@ -120,4 +123,20 @@ stages:
               targetPath: $(Build.ArtifactStagingDirectory)/export
               artifactName: PSRuleAnalysisReports
               artifactType: pipeline
-            condition: and(succeededOrFailed(), eq(variables['Agent.JobStatus'], 'Succeeded'))
+            condition: succeededOrFailed()
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish normalized assessment history evidence"
+            condition: succeededOrFailed()
+            inputs:
+              PathtoPublish: $(Build.ArtifactStagingDirectory)/export
+              ArtifactName: psrule-results
+              publishLocation: Container
+
+          - task: PublishHtmlReport@1
+            displayName: "Publish assessment analytics"
+            condition: and(succeededOrFailed(), eq(variables['PSRuleReportReady'], 'true'))
+            inputs:
+              reportDir: $(Build.ArtifactStagingDirectory)/export/psrule-dashboard.html
+              tabName: PSRule Dashboard
+              useFilenameTabs: false

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PSRule assessment snapshot 1.0",
+  "type": "object",
+  "required": ["schemaVersion", "organization", "runId", "timestamp", "module", "configuration", "configurationHash", "collection", "projects", "evaluatedRules", "evaluatedResources", "statistics", "results", "maturity"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "organization": {"type": "string", "minLength": 1},
+    "runId": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "module": {"type": "object", "required": ["name", "version"], "properties": {"name": {"type": "string"}, "version": {"type": "string"}}},
+    "configuration": {"type": "object"},
+    "configurationHash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "collection": {"type": "object", "required": ["Status"], "properties": {"Status": {"enum": ["Complete", "Partial", "Unavailable", "Failed", "Unknown"]}, "Projects": {"type": "array"}}},
+    "projects": {"type": "array", "items": {"type": "string"}},
+    "evaluatedRules": {"type": "array", "items": {"type": "string"}},
+    "evaluatedResources": {"type": "array", "items": {"type": "string"}},
+    "statistics": {"type": "object", "required": ["total", "passed", "failed", "applicable", "compliance", "outcomes"], "properties": {"compliance": {"type": ["number", "null"], "minimum": 0, "maximum": 100}}},
+    "legacy": {"type": "boolean"},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["fingerprint", "resourceKey", "identityComplete", "organization", "project", "targetType", "targetName", "resourceName", "ruleName", "outcome", "severity", "category", "description", "recommendation", "reason", "references", "documentation"],
+        "properties": {
+          "fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "resourceKey": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "identityComplete": {"type": "boolean"},
+          "outcome": {"type": "string"},
+          "severity": {"enum": ["Critical", "High", "Medium", "Low", "Unknown"]},
+          "references": {"type": "array", "items": {"type": "object", "required": ["title", "url"]}}
+        }
+      }
+    },
+    "maturity": {"type": "object", "required": ["schemaVersion", "scale", "dimensions", "evidence", "score"], "properties": {"schemaVersion": {"const": "1.0"}, "scale": {"const": [0,1,2,3,4]}, "dimensions": {"const": ["People", "Process", "Technology"]}, "evidence": {"type": "array"}, "score": {"type": ["number", "null"], "minimum": 0, "maximum": 4}}}
+  }
+}

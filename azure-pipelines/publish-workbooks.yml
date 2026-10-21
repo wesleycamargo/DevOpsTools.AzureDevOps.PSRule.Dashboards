@@ -2,6 +2,12 @@ name: PSRule Manual Assessment and Workbook Publishing
 trigger: none
 pr: none
 
+parameters:
+  - name: reportOnly
+    displayName: Generate reports without Azure Monitor publishing
+    type: boolean
+    default: false
+
 variables:
   PSRuleReportReady: 'false'
 
@@ -23,12 +29,15 @@ steps:
     path: s/rules
   - task: AzureCLI@2
     displayName: Assess organization and publish workbook results
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
     inputs:
       azureSubscription: psrule-azure
       scriptType: pscore
       scriptLocation: scriptPath
       scriptPath: $(Pipeline.Workspace)/s/dashboards/src/scripts/Invoke-PSRuleWorkbookAssessment.ps1
       arguments: >-
+        -ReportOnly:$${{ parameters.reportOnly }}
         -ModuleManifestPath "$(Pipeline.Workspace)/s/rules/src/PSRule.Rules.AzureDevOps/PSRule.Rules.AzureDevOps.psd1"
       visibleAzLogin: false
       useGlobalConfig: false

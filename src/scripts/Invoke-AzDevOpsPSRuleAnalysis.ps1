@@ -39,7 +39,9 @@ param (
 
     [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
-    [System.String]$ReportOutputPath
+    [System.String]$ReportOutputPath,
+
+    [string]$Organization = $env:PSRULE_ORGANIZATION
 )
 
 Begin {
@@ -70,7 +72,8 @@ Process {
 
     # Variables are already passed in from pipeline or task
     Write-Verbose "WorkspaceId and SharedKey retrieved from pipeline variables."
-    Write-Verbose "Report output path is [$ReportOutputPath]."    Write-Host "##[endgroup]"
+    Write-Verbose "Report output path is [$ReportOutputPath]."
+    Write-Host "##[endgroup]"
 
     #region Analyze Azure DevOps Data
     Write-Host "##[group]Analyzing Azure DevOps Data"
@@ -94,7 +97,7 @@ Process {
         File    = $true
         Recurse = $true
     }
-    $jsonFiles = Get-ChildItem @getChildItemParams
+    $jsonFiles = @(Get-ChildItem @getChildItemParams | Where-Object { $_.Name -notin 'assessment-snapshot.json', 'assessment-history.json', 'collection-status.json' })
 
     if ($jsonFiles.Count -eq 0) {
         Write-Output "##vso[task.logissue type=warning]No JSON files found in: $ReportOutputPath"
@@ -135,40 +138,32 @@ Process {
     }    Write-Host "Validated $($validJsonFiles.Count) JSON file(s) for PSRule analysis."
     Write-Output "##vso[task.setprogress value=40;]Validated $($validJsonFiles.Count) JSON files"
 
-    # Create input path array for PSRule
-    $jsonFilesGlob = $validJsonFiles | ForEach-Object {
-        Split-Path -Path $_ -Parent | Join-Path -ChildPath "*.json"
-    } | Select-Object -Unique
-
-    # Run PSRule assertions silently (no output)
-    try {
-        $assertParams = @{
-            Module      = 'PSRule.Rules.AzureDevOps'
-            InputPath   = $jsonFilesGlob
-            ErrorAction = 'SilentlyContinue'
-        }
-        Assert-PSRule @assertParams
-        Write-Verbose "PSRule assertions completed successfully."
-    }
-    catch {
-        $errorMessage = $_.Exception.Message
-        Write-Output "##vso[task.logissue type=warning]PSRule assertions encountered issues: $errorMessage"
-    }
-
     # Run PSRule evaluation with error handling
+    $evaluationFailed = $false
     try {
         $invokeParams = @{
             Module        = @('PSRule.Rules.AzureDevOps', 'PSRule.Monitor')
-            InputPath     = $jsonFilesGlob
+            InputPath     = $validJsonFiles
+            As            = 'Detail'
+            OutputPath    = (Join-Path $ReportOutputPath 'psrule-results.sarif')
+            OutputFormat  = 'Sarif'
+            ResultVariable = 'assessmentResults'
             Format        = 'Detect'
             Culture       = 'en'
-            ErrorAction   = 'Continue'
+            ErrorAction   = 'SilentlyContinue'
+            ErrorVariable = 'assessmentErrors'
             WarningAction = 'Continue'
         }
 
         Write-Host "Running PSRule evaluation..."
         Write-Output "##vso[task.setprogress value=60;]Running PSRule evaluation"
-        $result = Invoke-PSRule @invokeParams
+        $null = Assert-PSRule @invokeParams
+        $result = @($assessmentResults | Where-Object { $null -ne $_ })
+        foreach ($record in $assessmentErrors) {
+            if ($record.FullyQualifiedErrorId -eq 'PSRule.Fail,Assert-PSRule') { continue }
+            if ($record.FullyQualifiedErrorId -eq 'VariableNotFound,Microsoft.PowerShell.Commands.GetVariableCommand' -and $record.TargetObject -eq 'PSModuleAutoLoadingPreference' -and $record.InvocationInfo.ScriptName -match '[/\\]PSRule\.psm1$') { continue }
+            throw $record
+        }
 
         if ($null -eq $result -or $result.Count -eq 0) {
             $warningMessage = "No PSRule results were generated. " + `
@@ -180,6 +175,7 @@ Process {
     }
     catch {
         $errorMessage = $_.Exception.Message
+        $evaluationFailed = $true
         Write-Output "##vso[task.logissue type=error]PSRule evaluation failed with error: $errorMessage"
         Write-Host "##[warning]PSRule evaluation encountered errors. Some data may not be processed correctly."
 
@@ -192,6 +188,24 @@ Process {
             return
         }
     }
+
+    # Save complete current-run evidence before attempting Monitor ingestion.
+    $runOrganization = if ($Organization) { $Organization } else { 'Unknown' }
+    $runId = "$runOrganization/$($env:BUILD_BUILDID)"
+    $collectionPath = Join-Path (Split-Path $ReportOutputPath) 'collection-status.json'
+    $collection = if (Test-Path $collectionPath) { Get-Content $collectionPath -Raw | ConvertFrom-Json } else { @{ Status = 'Unknown'; Projects = @() } }
+    if ($validJsonFiles.Count -lt $jsonFiles.Count) { $collection.Status = 'Partial' }
+    $historyPath = Join-Path $ReportOutputPath 'assessment-history.json'
+    if ($env:SYSTEM_TEAMPROJECT -and $env:SYSTEM_DEFINITIONID) {
+        $null = & "$PSScriptRoot/Get-AssessmentHistory.ps1" -Organization $runOrganization -Project $env:SYSTEM_TEAMPROJECT -DefinitionId ([int]$env:SYSTEM_DEFINITIONID) -Branch $env:BUILD_SOURCEBRANCH -CurrentBuildId ([int]$env:BUILD_BUILDID) -OutputPath $historyPath
+    }
+    $module = Get-Module PSRule.Rules.AzureDevOps | Select-Object -First 1
+    $evaluationStatus = @{ Status = $(if ($evaluationFailed -or @($result | Where-Object Outcome -eq 'Error').Count) { 'Failed' } else { 'Completed' }) }
+    & "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Evaluation $evaluationStatus -Results @($result) -Organization $runOrganization -RunId $runId -OutputDirectory $ReportOutputPath -Collection $collection -ModuleVersion ([string]$module.Version) -RuleHelpPath (Join-Path $module.ModuleBase 'en') -HistoryPath $historyPath
+    Write-Host "##vso[task.uploadsummary]$(Join-Path $ReportOutputPath 'psrule-summary.md')"
+    Write-Host '##vso[task.setvariable variable=PSRuleReportReady]true'
+    if ($evaluationFailed -or @($result | Where-Object Outcome -eq 'Error').Count) { throw 'Assessment execution errors; reports retained.' }
+    if ($collection.Status -ne 'Complete') { throw 'Collection is incomplete or unknown; reports retained and ingestion blocked.' }
 
     # Send results to Log Analytics with error handling
     try {
@@ -220,5 +234,5 @@ Process {
 
 End {
     Write-Verbose 'PSRule analysis and export to Log Analytics completed.'
-    Write-Output "##vso[task.complete result=Succeeded;]PSRule analysis completed successfully"
+
 }

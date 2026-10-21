@@ -1,6 +1,6 @@
 # Dashboard architecture
 
-This document describes the local source on 10 October 2026, including uncommitted changes.
+This document describes the repository sources.
 It does not establish the current state of deployed Azure resources or remote branches.
 
 ## Components
@@ -8,7 +8,8 @@ It does not establish the current state of deployed Azure resources or remote br
 | Component | Responsibility |
 | --- | --- |
 | `Invoke-PSRuleWorkbookAssessment.ps1` | Import the supplied rule module, collect inputs, evaluate rules, create reports, publish results, and check ingestion. |
-| `Export-PSRulePipelineReport.ps1` and `src/templates/psrule-dashboard.html` | Convert detailed results into a standalone HTML snapshot and Markdown summary. |
+| `Export-PSRulePipelineReport.ps1`, `AssessmentModel.ps1` and `src/templates/assessment.{js,css}` | Convert detailed results into a standalone HTML snapshot and Markdown summary. |
+| `Get-AssessmentHistory.ps1` | Discover, validate and aggregate retained assessment artifacts; embed history in the main dashboard. |
 | `Publish-PSRuleWorkbookResults.ps1` | Convert detailed results to the ingestion schema and send authenticated batches. |
 | `Deploy-PSRuleWorkbooks.ps1` and `src/bicep/workbooks.bicep` | Deploy and inspect the workspace, result table, ingestion rule, and five workbooks. |
 | `src/bicep/main.bicep` and older analysis scripts | Preserve the original deployment and shared-key Monitor path. This path is distinct from the manual workbook pipeline. |
@@ -37,8 +38,8 @@ flowchart TD
 Artifact publication uses `succeededOrFailed()`, so it can execute after the assessment task fails.
 HTML publication additionally requires `PSRuleReportReady` to equal `true`.
 The assessment script sets this variable after report generation and before ingestion.
-Expected rule failures remain visible in reports. Zero results and rule execution errors stop report generation.
-Collection does not currently enable strict completeness or write a completeness report.
+Expected rule failures remain visible in reports. Zero results stop report generation. Rule execution errors retain reports and block workbook ingestion.
+Collection now writes a completeness report. Partial or unknown collection retains current-run reports and blocks workbook ingestion. See [assessment analytics](assessment-analytics.md) for the current reporting contract and history integration.
 
 The `psrule-results` artifact contains `psrule-results.sarif`, `psrule-dashboard.html`, and `psrule-summary.md` when generation succeeds.
 The script also attaches Markdown to the run summary.
