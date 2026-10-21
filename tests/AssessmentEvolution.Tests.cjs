@@ -49,3 +49,9 @@ assert.equal(stats([row("1", "Ignore")]).compliance, null);
 console.log(
   "Lifecycle tests passed: matched populations, missing scope, incomplete coverage, configuration, module, duplicates, recurrence and denominator.",
 );
+const executionError = compare(run([row('a')]), run([row('a', 'Pass')], {evaluation:{Status:'Failed'}}));
+assert.equal(executionError.compatible, false);
+assert.equal(executionError.lifecycle.resolved.length, 0);
+const missingIdentity = compare(run([{...row('a'), identityComplete:false}]), run([{...row('a', 'Pass'), identityComplete:false}]));
+assert.equal(missingIdentity.lifecycle.resolved.length, 0);
+assert.equal(missingIdentity.lifecycle.unverified.length, 1);
