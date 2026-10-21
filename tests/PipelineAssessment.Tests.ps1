@@ -23,13 +23,15 @@ BeforeAll {
                 }
                 function Export-AzDevOpsOrganizationRuleData {
                     param($OutputPath, $CompletenessReportPath, [switch]$Strict)
-                    if ($Scenario -eq 'Incomplete') {
-                        if ($CompletenessReportPath) { '{"Status":"Partial"}' | Set-Content $CompletenessReportPath }
-                        if ($Strict) { throw 'Assessment collection is incomplete.' }
+                    if ($Scenario -in 'Incomplete', 'PartialNoThrow', 'UnavailableNoThrow') {
+                        $status = if ($Scenario -eq 'UnavailableNoThrow') { 'Unavailable' } else { 'Partial' }
+                        if ($CompletenessReportPath) { @{ Status = $status } | ConvertTo-Json | Set-Content $CompletenessReportPath }
+                        if ($Strict -and $Scenario -eq 'Incomplete') { throw 'Assessment collection is incomplete.' }
                     } elseif ($CompletenessReportPath) { '{"Status":"Complete"}' | Set-Content $CompletenessReportPath }
                     '{}' | Set-Content (Join-Path $OutputPath 'input.json')
                 }
                 function New-PSRuleOption { }
+                function Start-Sleep { }
                 function Assert-PSRule {
                     param($ResultVariable, $OutputPath, $InputPath)
                     if (@($InputPath | Where-Object { $_ -match 'collection-status.json' }).Count) { throw 'Collection status entered the target stream.' }
@@ -42,6 +44,7 @@ BeforeAll {
                     })
                     if ($Scenario -eq 'Empty') { $results = @() }
                     if ($Scenario -eq 'ExecutionError') { $results[1].Outcome = 'Error' }
+                    if ($Scenario -eq 'Skipped') { $results | ForEach-Object { $_.Outcome = 'None' } }
                     Set-Variable -Name $ResultVariable -Scope 1 -Value $results
                     '{}' | Set-Content $OutputPath
                 }
@@ -77,6 +80,23 @@ BeforeAll {
 }
 
 Describe 'Assessment report integration' {
+    It 'validates the completeness report independently for <Scenario>' -ForEach @(@{ Scenario = 'PartialNoThrow' }, @{ Scenario = 'UnavailableNoThrow' }) {
+        $output = "$TestDrive/$Scenario"
+        $assessment = Invoke-TestAssessment $Scenario $output
+        $assessment.Error | Should -Match 'collection is incomplete'
+        Test-Path "$output/psrule-results.sarif" | Should -BeFalse
+        Test-Path "$output/psrule-dashboard.html" | Should -BeFalse
+        $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
+    }
+
+    It 'does not publish an assessment containing only skipped controls' {
+        $output = "$TestDrive/skipped"
+        $assessment = Invoke-TestAssessment Skipped $output
+        $assessment.Error | Should -Match 'zero evaluated rule results'
+        Test-Path "$output/psrule-dashboard.html" | Should -BeFalse
+        $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
+    }
+
     It 'retains completeness evidence and prevents evaluation and publication after incomplete collection' {
         $output = "$TestDrive/incomplete"
         $assessment = Invoke-TestAssessment Incomplete $output

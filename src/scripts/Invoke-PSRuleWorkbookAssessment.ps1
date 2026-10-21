@@ -24,6 +24,8 @@ $exportPath = Join-Path $env:PIPELINE_WORKSPACE "psrule-export-$($env:BUILD_BUIL
 New-Item $exportPath -ItemType Directory -Force | Out-Null
 $completenessReportPath = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'collection-status.json'
 Export-AzDevOpsOrganizationRuleData -Organization $Organization -OrganizationId $OrganizationId -OutputPath $exportPath -Strict -CompletenessReportPath $completenessReportPath
+$collectionStatus = Get-Content -LiteralPath $completenessReportPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+if ($collectionStatus.Status -ne 'Complete') { throw 'Assessment collection is incomplete; nothing was evaluated or published.' }
 # Organization exports live in project subfolders; select actual files recursively.
 $inputFiles = @(Get-ChildItem $exportPath -File -Recurse -Filter '*.json' | Select-Object -ExpandProperty FullName)
 if ($inputFiles.Count -eq 0) { throw 'The organization export produced no JSON input files.' }
@@ -42,6 +44,7 @@ foreach ($errorRecord in $evaluationErrors) {
 $results = @($evaluationResults | Where-Object { $null -ne $_ })
 if ($results.Count -eq 0) { throw 'The assessment evaluated zero rule results; nothing was published.' }
 if (@($results | Where-Object Outcome -eq 'Error').Count) { throw 'The assessment encountered rule execution errors.' }
+if (@($results | Where-Object Outcome -in 'Pass', 'Fail').Count -eq 0) { throw 'The assessment produced zero evaluated rule results; nothing was published.' }
 $failedCount = @($results | Where-Object Outcome -eq 'Fail').Count
 Write-Host "Assessment evaluated $($results.Count) results, including $failedCount failures."
 $runId = "$Organization/$($env:BUILD_BUILDID)"
