@@ -100,3 +100,26 @@ Describe 'Report contract and history resilience' {
         Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
     }
 }
+
+Describe 'Historical dataset evidence validation' {
+    It 'excludes a structurally invalid historical snapshot without breaking the current dashboard' {
+        @{schemaVersion='1.0';snapshots=@(@{schemaVersion='1.0';runId='org/bad';results=@(@{outcome='Fail'})});limitations=@()} | ConvertTo-Json -Depth 10 | Set-Content "$TestDrive/invalid-history.json"
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive -HistoryPath "$TestDrive/invalid-history.json"
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.history.snapshots.Count | Should -Be 0
+        $data.history.limitations -join ' ' | Should -Match 'comparison metadata is missing'
+        Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
+    }
+}
+
+Describe 'Template-looking finding text' {
+    It 'preserves template placeholders inside assessment data as literal strings' {
+        $literal = '__DASHBOARD_JS__ __DASHBOARD_CSS__ __REPORT_DATA__'
+        $result = New-ReportResult Fail $literal
+        & $scriptPath -Results @($result) -Organization org -RunId org/1 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.results[0].ruleName | Should -Be $literal
+    }
+}

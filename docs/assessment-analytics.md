@@ -39,7 +39,7 @@ Controls are ranked by highest failing severity, then affected resource count.
 There is no invented composite risk score. Rule help/PSRule metadata supplies
 categories, descriptions, recommendations and links; missing content stays unavailable.
 
-A verified lifecycle transition requires both snapshots to have complete collection,
+A verified lifecycle transition requires both snapshots to have completed evaluation and complete collection,
 matching organization, configuration hash and module version, reliable checkpoint
 identities and explicit Pass/Fail outcomes at the same fingerprint:
 
@@ -50,8 +50,9 @@ identities and explicit Pass/Fail outcomes at the same fingerprint:
 - Incompatible configurations, incomplete collection, ambiguous duplicate checkpoints
   or legacy evidence: no verified improvement is claimed.
 
-The manual pipeline hashes module source files as part of its configuration, so
-same-version rule edits also invalidate comparison. Comparable compliance uses the
+Both pipeline entry points hash module sources/help and effective PSRule options as part
+of their configuration. Dictionary ordering does not change the hash. Same-version rule
+edits and configuration changes invalidate comparison. Comparable compliance uses the
 intersection of explicit applicable checkpoints; raw totals remain separately visible.
 Resource renames/identity changes conservatively appear as scope changes.
 
@@ -59,7 +60,7 @@ Resource renames/identity changes conservatively appear as scope changes.
 
 See [assessment-snapshot.schema.json](assessment-snapshot.schema.json). Version 1.0
 contains organization, evaluated projects, run ID/time, module identity/version,
-assessment configuration/hash, original collection report, evaluated rule/resource
+assessment configuration/hash, evaluation status, original collection report, evaluated rule/resource
 identities, checkpoint metadata/outcomes, statistics and maturity evidence contract.
 Fingerprints are SHA-256 hashes of JSON arrays containing organization, project,
 resource type, resource ID/name, target identity and rule identity. Resource keys
@@ -74,8 +75,8 @@ and a nullable score; supporting evidence is presently empty.
 
 ## Pipeline operation
 
-`azure-pipelines/publish-workbooks.yml` maps `System.AccessToken` only to the
-history step's process environment. The existing pipeline identity needs Build Read
+`azure-pipelines/publish-workbooks.yml` maps `System.AccessToken` to the
+assessment task environment for historical acquisition. The existing pipeline identity needs Build Read
 and access to its own artifacts; additional infrastructure and PATs are unnecessary.
 History acquisition filters exactly one pipeline and branch, paginates build history,
 deduplicates runs, downloads `psrule-results` and reads only the named snapshot or
@@ -91,9 +92,9 @@ evaluation and reporting without publishing to Azure Monitor. No Azure infrastru
 or retention policies are changed by the reporting scripts.
 
 The older `azure-pipelines.yml` entry point also writes reports and snapshots before
-its shared-key publisher. It preserves its prior evaluation configuration; because
-its selected baseline/configuration is unspecified, lifecycle comparison is unavailable
-until that configuration is explicitly supplied. Its SARIF, raw-data and existing
+its shared-key publisher. It preserves its prior rule selection using an explicit effective-options object, records
+`ModuleDefault` when no baseline override was selected, and hashes module sources and
+options for historical comparison. Its SARIF, raw-data and existing
 analysis artifacts remain available, and `psrule-results` is added for history.
 
 `PublishHtmlReport@1` requires the HTML Reports extension. Evolution is integrated
@@ -115,7 +116,7 @@ historical scoring implementation is introduced in workbooks.
 
 ## Local development
 
-From the dashboard repository, with PowerShell 7, Pester 5.7.1 and Node 20+:
+From the dashboard repository, with PowerShell 7.4+, Pester 5.7.1 and Node 20+:
 
 ```powershell
 Invoke-Pester ./tests -Output Detailed
@@ -130,8 +131,9 @@ $results = @(Get-Content ./results.json -Raw | ConvertFrom-Json)
 ./src/scripts/Get-AssessmentHistory.ps1 -Organization example -Project project -DefinitionId 17 -SnapshotPaths ./old/assessment-snapshot.json -Token '' -OutputPath ./.report/assessment-history.json
 ```
 
-Supply collection/configuration/version and `-RuleHelpPath` when generating verified
-snapshots. `-HistoryPath` embeds an existing history envelope in the HTML. Browser
+Supply collection/configuration/version, `-Evaluation @{Status='Completed'}`, and
+`-RuleHelpPath` when generating verified snapshots. Unknown evaluation status or missing
+checkpoint identity fields prevent verified lifecycle transitions. `-HistoryPath` embeds an existing history envelope in the HTML. Browser
 tests generate synthetic evidence; production credentials and live Azure resources
 are not required. Presentation source is in `src/templates/assessment.{js,css}`;
 the shell template is `psrule-dashboard.html`. `npm run format` formats those files.

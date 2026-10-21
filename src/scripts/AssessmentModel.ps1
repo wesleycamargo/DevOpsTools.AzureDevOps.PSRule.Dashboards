@@ -6,7 +6,7 @@ function Get-AssessmentText {
 }
 function Get-AssessmentSeverity {
     param($Value)
-    switch -Regex ([string]$Value) {
+    switch -Regex (([string]$Value).Trim()) {
         '^(critical)$' { 'Critical'; break }
         '^(severe|important|error|high)$' { 'High'; break }
         '^(warning|warn|moderate|medium)$' { 'Medium'; break }
@@ -14,10 +14,48 @@ function Get-AssessmentSeverity {
         default { 'Unknown' }
     }
 }
+function ConvertTo-AssessmentCanonicalValue {
+    param($Value)
+    if ($Value -is [Collections.IDictionary]) {
+        $ordered = [ordered]@{}
+        $keys = [string[]]@($Value.Keys)
+        [Array]::Sort($keys, [StringComparer]::Ordinal)
+        foreach ($key in $keys) { $ordered[$key] = ConvertTo-AssessmentCanonicalValue $Value[$key] }
+        return $ordered
+    }
+    if ($Value -is [Collections.IEnumerable] -and $Value -isnot [string]) {
+        $items = [Collections.Generic.List[object]]::new()
+        foreach ($item in $Value) { $items.Add((ConvertTo-AssessmentCanonicalValue $item)) }
+        return ,$items.ToArray()
+    }
+    if ($null -ne $Value -and $Value -isnot [ValueType] -and $Value -isnot [string]) {
+        $properties = @{}
+        foreach ($property in $Value.PSObject.Properties) {
+            if ($property.IsGettable) { $properties[$property.Name] = $property.Value }
+        }
+        return ConvertTo-AssessmentCanonicalValue $properties
+    }
+    return $Value
+}
 function Get-AssessmentHash {
     param($Value)
-    $json = ConvertTo-Json -InputObject $Value -Depth 20 -Compress
+    $json = ConvertTo-Json -InputObject (ConvertTo-AssessmentCanonicalValue $Value) -Depth 30 -Compress
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
+}
+function Get-AssessmentConfiguration {
+    param([string]$ModuleManifestPath, [string]$Baseline, $Option, [string]$PSRuleVersion)
+    $sourceFiles = @()
+    if (Test-Path -LiteralPath $ModuleManifestPath) {
+        $moduleDirectory = Split-Path ([IO.Path]::GetFullPath($ModuleManifestPath))
+        $sourceFiles = @(Get-ChildItem -LiteralPath $moduleDirectory -File -Recurse | Where-Object { $_.Extension -in '.ps1', '.psm1', '.psd1', '.yaml', '.yml', '.md' } | Sort-Object FullName)
+    }
+    $rulesetHash = if ($sourceFiles.Count) {
+        Get-AssessmentHash @($sourceFiles | ForEach-Object { [ordered]@{ path = [IO.Path]::GetRelativePath($moduleDirectory, $_.FullName); hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } })
+    } else { 'Unknown' }
+    [ordered]@{
+        baseline = $Baseline; ruleset = 'PSRule.Rules.AzureDevOps'; rulesetHash = $rulesetHash
+        optionHash = Get-AssessmentHash $Option; psruleVersion = $PSRuleVersion; culture = 'en'
+    }
 }
 function Get-AssessmentStatistics {
     param([object[]]$Records)
@@ -33,6 +71,21 @@ function Get-AssessmentStatistics {
         outcomes = @($Records | Group-Object outcome | ForEach-Object { @{ outcome = $_.Name; count = $_.Count } })
         rules = @($Records.ruleName | Sort-Object -Unique).Count
         resources = @($Records.resourceKey | Sort-Object -Unique).Count
+    }
+}
+function Assert-AssessmentSnapshot {
+    param($Snapshot, [string]$Organization)
+    if ($Snapshot.schemaVersion -ne '1.0') { throw 'Unsupported snapshot version; this run was excluded.' }
+    if (-not $Snapshot.module -or -not $Snapshot.configurationHash -or -not $Snapshot.collection -or -not $Snapshot.configuration -or -not $Snapshot.evaluation) { throw 'Snapshot comparison metadata is missing.' }
+    if (-not $Snapshot.runId -or -not $Snapshot.timestamp -or $Snapshot.results -isnot [array] -or -not $Snapshot.results.Count) { throw 'Snapshot has no valid assessment evidence.' }
+    $null = [datetime]::Parse($Snapshot.timestamp)
+    if ($Snapshot.organization -ne $Organization) { throw 'Snapshot belongs to another organization.' }
+    foreach ($record in $Snapshot.results) {
+        if ($record.identityComplete -isnot [bool]) { throw 'Checkpoint identity completeness is missing or invalid.' }
+        foreach ($field in 'fingerprint', 'resourceKey', 'ruleName', 'project', 'category', 'targetType', 'targetName', 'resourceName', 'displayName', 'severity', 'outcome') {
+            if ($record.$field -isnot [string] -or [string]::IsNullOrWhiteSpace($record.$field)) { throw 'Snapshot contains an invalid checkpoint.' }
+        }
+        if ($record.fingerprint -cnotmatch '^[a-f0-9]{64}$' -or $record.resourceKey -cnotmatch '^[a-f0-9]{64}$') { throw 'Snapshot checkpoint fingerprints are invalid.' }
     }
 }
 function New-AssessmentSnapshot {
@@ -60,16 +113,17 @@ function New-AssessmentSnapshot {
         $severity = Get-AssessmentSeverity $metadata.severity
         if ($RuleHelpPath -and $rule -notmatch '[/\\]' -and (Test-Path -LiteralPath (Join-Path $RuleHelpPath "$rule.md"))) {
             $help = Get-Content -LiteralPath (Join-Path $RuleHelpPath "$rule.md") -Raw
-            if ($help -match '(?m)^category:\s*(.+)$') { $category = $Matches[1].Trim() }
-            if ($help -match '(?m)^severity:\s*(.+)$') { $severity = Get-AssessmentSeverity $Matches[1].Trim() }
-            if ($help -match '(?m)^online version:\s*(.+)$') { $documentation = $Matches[1].Trim() }
+            $frontMatter = if ($help -match '(?s)\A---\r?\n(.*?)\r?\n---(?:\r?\n|\z)') { $Matches[1] } else { '' }
+            if ($frontMatter -match '(?m)^category:[ \t]*(.+)$') { $category = $Matches[1].Trim() }
+            if ($frontMatter -match '(?m)^severity:[ \t]*(.+)$') { $severity = Get-AssessmentSeverity $Matches[1].Trim() }
+            if ($frontMatter -match '(?m)^online version:[ \t]*(.+)$') { $documentation = $Matches[1].Trim() }
             if ($help -match '(?s)## DESCRIPTION\s*(.*?)(?=\r?\n## |\z)') { $description = $Matches[1].Trim() }
             if ($help -match '(?s)## RECOMMENDATION\s*(.*?)(?=\r?\n## |\z)') { $recommendation = $Matches[1].Trim() }
             $references = @([regex]::Matches($help, '\[([^\]]+)\]\((https://[^)]+)\)') | ForEach-Object { @{ title = $_.Groups[1].Value; url = $_.Groups[2].Value } })
         }
         [pscustomobject][ordered]@{
             fingerprint = Get-AssessmentHash @($org, $project, $type, $resource, $target, $rule)
-            identityComplete = ($org -ne 'Unknown' -and $project -ne 'Unknown' -and $type -ne 'Unknown' -and $target -ne 'Unknown' -and $resource -ne 'Unknown')
+            identityComplete = ($rule -ne 'Unknown' -and $org -ne 'Unknown' -and $project -ne 'Unknown' -and $type -ne 'Unknown' -and $target -ne 'Unknown' -and $resource -ne 'Unknown')
             resourceKey = $resourceKey; organization = $org; project = $project
             ruleName = $rule; displayName = Get-AssessmentText $result.Info.DisplayName
             targetName = $target; targetType = $type; resourceName = Get-AssessmentText $id.resourceName $target

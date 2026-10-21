@@ -14,11 +14,11 @@ const {chromium}=require('playwright');
     $data = Get-Content "$env:ANALYTICS_TEST_OUTPUT/fixtures.json" -Raw | ConvertFrom-Json
     $snapshots = @()
     for ($i = 0; $i -lt 2; $i++) {
-      & $env:ANALYTICS_TEST_SCRIPT -Results @($data.runs[$i]) -Organization org -RunId "org/$i" -Timestamp ([datetime]"2026-01-0$($i+1)") -OutputDirectory "$env:ANALYTICS_TEST_OUTPUT/$i" -ModuleVersion 1 -Collection @{Status='Complete'} -Configuration @{baseline='Default';rulesetHash='known'}
+      & $env:ANALYTICS_TEST_SCRIPT -Results @($data.runs[$i]) -Organization org -RunId "org/$i" -Timestamp ([datetime]"2026-01-0$($i+1)") -OutputDirectory "$env:ANALYTICS_TEST_OUTPUT/$i" -ModuleVersion 1 -Evaluation @{Status='Completed'} -Collection @{Status='Complete'} -Configuration @{baseline='Default';rulesetHash='known'}
       $snapshots += Get-Content "$env:ANALYTICS_TEST_OUTPUT/$i/assessment-snapshot.json" -Raw | ConvertFrom-Json
     }
     @{schemaVersion='1.0';snapshots=$snapshots;limitations=@('Retention applies.')} | ConvertTo-Json -Depth 30 | Set-Content "$env:ANALYTICS_TEST_OUTPUT/history.json"
-    & $env:ANALYTICS_TEST_SCRIPT -Results @($data.runs[2]) -Organization org -RunId org/2 -Timestamp ([datetime]'2026-01-03') -OutputDirectory $env:ANALYTICS_TEST_OUTPUT -ModuleVersion 1 -Collection @{Status='Complete'} -Configuration @{baseline='Default';rulesetHash='known'} -HistoryPath "$env:ANALYTICS_TEST_OUTPUT/history.json"
+    & $env:ANALYTICS_TEST_SCRIPT -Results @($data.runs[2]) -Organization org -RunId org/2 -Timestamp ([datetime]'2026-01-03') -OutputDirectory $env:ANALYTICS_TEST_OUTPUT -ModuleVersion 1 -Evaluation @{Status='Completed'} -Collection @{Status='Complete'} -Configuration @{baseline='Default';rulesetHash='known'} -HistoryPath "$env:ANALYTICS_TEST_OUTPUT/history.json"
   `],{env:{...process.env,ANALYTICS_TEST_OUTPUT:output,ANALYTICS_TEST_SCRIPT:path.resolve(__dirname,'../src/scripts/Export-PSRulePipelineReport.ps1')}});
   const browser=await chromium.launch({headless:true});
   try{

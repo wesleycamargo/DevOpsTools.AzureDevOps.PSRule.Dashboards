@@ -18,11 +18,6 @@ param (
     [string]$HistoryPath
 )
 $ErrorActionPreference = 'Stop'
-function Get-ReportText {
-    param($Value)
-    if ([string]::IsNullOrWhiteSpace([string]$Value)) { return 'Unknown' }
-    return [string]$Value
-}
 function ConvertTo-SummaryText {
     param([string]$Value)
     $text = [Net.WebUtility]::HtmlEncode(($Value -replace '[\r\n]+', ' '))
@@ -39,8 +34,8 @@ $counts = [ordered]@{
     'Error checkpoints' = $report.statistics.errors
     'Applicable checkpoints' = $report.statistics.applicable
     'Compliance (%)' = $(if ($null -eq $report.statistics.compliance) { 'Unavailable' } else { $report.statistics.compliance })
-    'Rules checked' = @($records.ruleName | Sort-Object -Unique).Count
-    'Resources checked' = @($records | Select-Object project, targetType, targetName -Unique).Count
+    'Rules checked' = $report.statistics.rules
+    'Resources checked' = $report.statistics.resources
 }
 $timestampText = $Timestamp.ToUniversalTime().ToString('o')
 $history = @{ schemaVersion = '1.0'; snapshots = @(); limitations = @('History is limited by pipeline artifact retention.') }
@@ -48,15 +43,22 @@ if ($HistoryPath -and (Test-Path -LiteralPath $HistoryPath)) {
     try {
         $candidate = Get-Content -LiteralPath $HistoryPath -Raw | ConvertFrom-Json -AsHashtable
         if ($candidate.schemaVersion -ne '1.0' -or -not $candidate.ContainsKey('snapshots')) { throw 'Unsupported history envelope.' }
-        $history = $candidate
+        $history.limitations += @($candidate.limitations)
+        $seenRuns = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($snapshot in $candidate.snapshots) {
+            try {
+                Assert-AssessmentSnapshot -Snapshot $snapshot -Organization $Organization
+                if ($seenRuns.Add([string]$snapshot.runId)) { $history.snapshots += $snapshot }
+            } catch { $history.limitations += "Historical snapshot excluded: $($_.Exception.Message)" }
+        }
     } catch { $history.limitations += 'Historical dataset is unreadable or unsupported; current-run evidence is retained.' }
 }
 $report.history = $history
 # Escape HTML-sensitive characters so result text cannot terminate the JSON script element.
 $json = ConvertTo-Json -InputObject $report -Depth 30 -Compress -EscapeHandling EscapeHtml
 $template = Get-Content "$PSScriptRoot/../templates/psrule-dashboard.html" -Raw
-$html = $template.Replace('__REPORT_DATA__', $json)
-$html = $html.Replace('__DASHBOARD_CSS__', (Get-Content "$PSScriptRoot/../templates/assessment.css" -Raw)).Replace('__DASHBOARD_JS__', (Get-Content "$PSScriptRoot/../templates/assessment.js" -Raw))
+# Insert data last so assessment text that resembles a template marker stays literal.
+$html = $template.Replace('__DASHBOARD_CSS__', (Get-Content "$PSScriptRoot/../templates/assessment.css" -Raw)).Replace('__DASHBOARD_JS__', (Get-Content "$PSScriptRoot/../templates/assessment.js" -Raw)).Replace('__REPORT_DATA__', $json)
 $summary = @(
     '# PSRule Dashboard'
     ''

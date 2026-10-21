@@ -20,7 +20,7 @@ const Assessment = (() => {
       resources: new Set(rows.map((r) => r.resourceKey)).size,
     };
   };
-  const compare = (before, after, earlier = []) => {
+  const comparisonEvidence = (before, after) => {
     const limitations = [];
     if (before.organization !== after.organization)
       limitations.push("Organization differs.");
@@ -32,18 +32,19 @@ const Assessment = (() => {
     if (
       !before.module ||
       !after.module ||
+      !before.module.version ||
       before.module.version === "Unknown" ||
       before.module.version !== after.module.version
     )
       limitations.push("Rule module version differs or is unknown.");
     if (
-      before.evaluation?.Status === "Failed" ||
-      after.evaluation?.Status === "Failed" ||
+      before.evaluation?.Status !== "Completed" ||
+      after.evaluation?.Status !== "Completed" ||
       before.results.some((r) => r.outcome === "Error") ||
       after.results.some((r) => r.outcome === "Error")
     )
       limitations.push(
-        "Rule evaluation errors prevent verified lifecycle comparison.",
+        "Rule evaluation is incomplete, failed or unknown; lifecycle comparison is unverified.",
       );
     if (before.legacy || after.legacy)
       limitations.push("Legacy evidence has no verified checkpoint identity.");
@@ -56,8 +57,10 @@ const Assessment = (() => {
       limitations.push("Collection coverage is incomplete or unknown.");
     for (const snapshot of [before, after]) {
       if (
-        snapshot.configuration?.baseline === "Unknown" ||
-        snapshot.configuration?.rulesetHash === "Unknown"
+        !snapshot.configuration?.baseline ||
+        !snapshot.configuration?.rulesetHash ||
+        snapshot.configuration.baseline === "Unknown" ||
+        snapshot.configuration.rulesetHash === "Unknown"
       )
         limitations.push("Baseline or ruleset identity is unknown.");
     }
@@ -74,6 +77,10 @@ const Assessment = (() => {
           );
         map.set(row.fingerprint, row);
       }
+    return { limitations, a, b };
+  };
+  const compare = (before, after, earlier = []) => {
+    const { limitations, a, b } = comparisonEvidence(before, after);
     const lifecycle = {
       new: [],
       resolved: [],
@@ -84,6 +91,17 @@ const Assessment = (() => {
     };
     const comparable = [];
     const compatible = !limitations.length;
+    const priorFailures = new Set();
+    if (compatible) {
+      for (const snapshot of earlier) {
+        const evidence = comparisonEvidence(snapshot, before);
+        if (evidence.limitations.length) continue;
+        for (const row of evidence.a.values()) {
+          if (row.identityComplete === true && row.outcome === "Fail")
+            priorFailures.add(row.fingerprint);
+        }
+      }
+    }
     for (const key of new Set([...a.keys(), ...b.keys()])) {
       const old = a.get(key),
         current = b.get(key);
@@ -96,10 +114,7 @@ const Assessment = (() => {
           lifecycle.unverified.push(current);
         continue;
       }
-      if (
-        old.identityComplete === false ||
-        current.identityComplete === false
-      ) {
+      if (old.identityComplete !== true || current.identityComplete !== true) {
         lifecycle.unverified.push(current);
         continue;
       }
@@ -116,16 +131,7 @@ const Assessment = (() => {
       if (old.outcome === "Fail" && current.outcome === "Fail")
         lifecycle.persistent.push(current);
       if (old.outcome === "Pass" && current.outcome === "Fail") {
-        const recurring = earlier.some(
-          (s) =>
-            s.organization === before.organization &&
-            s.configurationHash === before.configurationHash &&
-            s.module?.version === before.module.version &&
-            s.collection?.Status === "Complete" &&
-            s.results.some(
-              (r) => r.fingerprint === key && r.outcome === "Fail",
-            ),
-        );
+        const recurring = priorFailures.has(key);
         lifecycle[recurring ? "recurring" : "new"].push(current);
       }
     }
@@ -294,6 +300,10 @@ if (typeof document !== "undefined")
     function save() {
       previous.push({
         view,
+        page,
+        group,
+        sort,
+        projectSort,
         filters: fields.map((f) => $(f).value),
         search: $("search").value,
         ruleFilter,
@@ -353,10 +363,19 @@ if (typeof document !== "undefined")
     $("back").onclick = () => {
       const old = previous.pop();
       if (!old) return;
-      ({ view, ruleFilter, resourceFilter, lifecycleFilter, detail } = old);
+      ({
+        view,
+        page,
+        group,
+        sort,
+        projectSort,
+        ruleFilter,
+        resourceFilter,
+        lifecycleFilter,
+        detail,
+      } = old);
       fields.forEach((f, i) => ($(f).value = old.filters[i]));
       $("search").value = old.search;
-      page = 0;
       render();
     };
     [...fields, "search"].forEach((f) =>
@@ -801,7 +820,8 @@ if (typeof document !== "undefined")
           "Compliance",
           "Passed",
           "Failed",
-          "Coverage",
+          "Collection",
+          "Evaluation",
           "Critical / High / Medium / Low",
         ],
         runs.map((s) => {
@@ -815,6 +835,7 @@ if (typeof document !== "undefined")
             stat.passed,
             stat.failed,
             s.collection?.Status || "Unknown",
+            s.evaluation?.Status || "Unknown",
             ["Critical", "High", "Medium", "Low"]
               .map(
                 (v) =>

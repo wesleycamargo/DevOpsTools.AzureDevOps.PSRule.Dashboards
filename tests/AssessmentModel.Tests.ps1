@@ -74,3 +74,49 @@ Rule 'Synthetic.Policy' {
         @($sarif.runs[0].results).Count | Should -Be 1
     }
 }
+
+Describe 'Configuration and metadata integrity' {
+    It 'hashes equivalent configuration dictionaries independently of insertion order' {
+        $first = [ordered]@{baseline='Default';thresholds=[ordered]@{a=1;b=2};empty=@();one=@('a');nested=@(@('a','b'),@('c'))}
+        $second = [ordered]@{nested=@(@('a','b'),@('c'));one=@('a');empty=@();thresholds=[ordered]@{b=2;a=1};baseline='Default'}
+        Get-AssessmentHash $first | Should -Be (Get-AssessmentHash $second)
+        Get-AssessmentHash @('2026-01-01T00:00:00Z') | Should -Not -Be (Get-AssessmentHash @('2026-01-01T00:00:00+00:00'))
+    }
+    It 'captures the effective options and changes source identity when module or help changes' {
+        $modulePath = Join-Path $TestDrive 'module'
+        New-Item $modulePath -ItemType Directory | Out-Null
+        '@{ModuleVersion="1.0"}' | Set-Content "$modulePath/module.psd1"
+        'Rule ''A'' { $true }' | Set-Content "$modulePath/A.Rule.ps1"
+        $first = Get-AssessmentConfiguration -ModuleManifestPath "$modulePath/module.psd1" -Baseline ModuleDefault -Option @{Configuration=@{threshold=3}} -PSRuleVersion '2.9.0'
+        $changedOption = Get-AssessmentConfiguration -ModuleManifestPath "$modulePath/module.psd1" -Baseline ModuleDefault -Option @{Configuration=@{threshold=4}} -PSRuleVersion '2.9.0'
+        $first.optionHash | Should -Not -Be $changedOption.optionHash
+        'severity: Critical' | Set-Content "$modulePath/A.md"
+        $changedHelp = Get-AssessmentConfiguration -ModuleManifestPath "$modulePath/module.psd1" -Baseline ModuleDefault -Option @{Configuration=@{threshold=3}} -PSRuleVersion '2.9.0'
+        $first.rulesetHash | Should -Not -Be $changedHelp.rulesetHash
+    }
+    It 'does not read empty front matter values from the following line or rule body' {
+        @'
+---
+category:
+severity: Severe
+online version:
+---
+## DESCRIPTION
+category: This is description text, not metadata.
+'@ | Set-Content "$TestDrive/Rule.A.md"
+        $snapshot = New-AssessmentSnapshot -Results @((New-Checkpoint)) -Organization org -RunId org/1 -Timestamp ([datetime]'2026-01-01') -RuleHelpPath $TestDrive
+        $snapshot.results[0].category | Should -Be Unknown
+        $snapshot.results[0].severity | Should -Be High
+        $snapshot.results[0].documentation | Should -Be ''
+    }
+}
+
+Describe 'Missing rule identity' {
+    It 'marks an otherwise identified resource checkpoint unverified when its rule identity is absent' {
+        $row = New-Checkpoint
+        $row.RuleName = $null
+        $snapshot = New-AssessmentSnapshot -Results @($row) -Organization org -RunId org/1 -Timestamp ([datetime]'2026-01-01')
+        $snapshot.results[0].ruleName | Should -Be Unknown
+        $snapshot.results[0].identityComplete | Should -BeFalse
+    }
+}

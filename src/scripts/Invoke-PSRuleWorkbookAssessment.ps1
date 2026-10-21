@@ -40,8 +40,12 @@ $reportPath = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'psrule-results.sari
 $option = New-PSRuleOption -OutputStyle Plain -OutputAs Detail
 $evaluationResults = $null
 $evaluationErrors = @()
-$null = Assert-PSRule -InputPath $inputFiles -Module PSRule.Rules.AzureDevOps -Baseline Baseline.Default -Culture en -Style Plain -As Detail -Option $option -OutputPath $reportPath -OutputFormat Sarif -ResultVariable evaluationResults -ErrorAction SilentlyContinue -ErrorVariable evaluationErrors
+$terminatingEvaluationError = $null
+try {
+    $null = Assert-PSRule -InputPath $inputFiles -Module PSRule.Rules.AzureDevOps -Baseline Baseline.Default -Culture en -Style Plain -As Detail -Option $option -OutputPath $reportPath -OutputFormat Sarif -ResultVariable evaluationResults -ErrorAction SilentlyContinue -ErrorVariable evaluationErrors
+} catch { $terminatingEvaluationError = $_ }
 $fatalEvaluationErrors = @()
+if ($terminatingEvaluationError) { $fatalEvaluationErrors += $terminatingEvaluationError }
 foreach ($errorRecord in $evaluationErrors) {
     if ($errorRecord.FullyQualifiedErrorId -eq 'PSRule.Fail,Assert-PSRule') { continue }
     # PSRule 2.9 probes this optional preference; an unset value means default autoloading.
@@ -60,10 +64,7 @@ if ($env:SYSTEM_TEAMPROJECT -and $env:SYSTEM_DEFINITIONID) {
     $null = & "$PSScriptRoot/Get-AssessmentHistory.ps1" -Organization $Organization -Project $env:SYSTEM_TEAMPROJECT -DefinitionId ([int]$env:SYSTEM_DEFINITIONID) -Branch $env:BUILD_SOURCEBRANCH -CurrentBuildId ([int]$env:BUILD_BUILDID) -OutputPath $historyPath
 }
 $moduleVersion = Get-AssessmentModuleVersion -ManifestPath $ModuleManifestPath
-$moduleDirectory = Split-Path ([IO.Path]::GetFullPath($ModuleManifestPath))
-$sourceFiles = @(Get-ChildItem -LiteralPath $moduleDirectory -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.ps1', '.psm1', '.psd1', '.yaml', '.yml' } | Sort-Object FullName)
-$rulesetHash = if ($sourceFiles.Count) { Get-AssessmentHash @($sourceFiles | ForEach-Object { [ordered]@{ path = [IO.Path]::GetRelativePath($moduleDirectory, $_.FullName); hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash } }) } else { 'Unknown' }
-$configuration = [ordered]@{ baseline = 'Baseline.Default'; ruleset = 'PSRule.Rules.AzureDevOps'; rulesetHash = $rulesetHash; psruleVersion = '2.9.0'; culture = 'en' }
+$configuration = Get-AssessmentConfiguration -ModuleManifestPath $ModuleManifestPath -Baseline 'Baseline.Default' -Option $option -PSRuleVersion '2.9.0'
 $evaluationStatus = @{ Status = $(if ($hasExecutionErrors -or $fatalEvaluationErrors.Count) { 'Failed' } else { 'Completed' }); ErrorCount = $fatalEvaluationErrors.Count + @($results | Where-Object Outcome -eq 'Error').Count }
 & "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Evaluation $evaluationStatus -Results $results -Organization $Organization -RunId $runId -OutputDirectory $env:BUILD_ARTIFACTSTAGINGDIRECTORY -Collection $collection -Configuration $configuration -ModuleVersion $moduleVersion -RuleHelpPath (Join-Path (Split-Path ([IO.Path]::GetFullPath($ModuleManifestPath))) 'en') -HistoryPath $historyPath
 Write-Host "##vso[task.uploadsummary]$(Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'psrule-summary.md')"

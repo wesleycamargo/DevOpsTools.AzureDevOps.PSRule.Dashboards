@@ -19,14 +19,7 @@ $limitations.Add('History is limited by pipeline artifact retention; missing run
 $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
 function Add-HistorySnapshot {
     param($Snapshot)
-    if ($Snapshot.schemaVersion -ne '1.0') { throw 'Unsupported snapshot version; this run was excluded.' }
-    if (-not $Snapshot.module -or -not $Snapshot.configurationHash -or -not $Snapshot.collection) { throw 'Snapshot comparison metadata is missing.' }
-    if (-not $Snapshot.runId -or -not $Snapshot.timestamp -or -not @($Snapshot.results).Count) { throw 'Snapshot has no valid assessment evidence.' }
-    $null = [datetime]::Parse($Snapshot.timestamp)
-    if ($Snapshot.organization -ne $Organization) { throw 'Snapshot belongs to another organization.' }
-    foreach ($record in $Snapshot.results) {
-        if (-not $record.fingerprint -or -not $record.ruleName -or -not $record.outcome -or -not $record.resourceKey -or -not $record.project -or -not $record.category -or -not $record.targetType -or -not $record.severity) { throw 'Snapshot contains an invalid checkpoint.' }
-    }
+    Assert-AssessmentSnapshot -Snapshot $Snapshot -Organization $Organization
     $key = "$($Snapshot.organization)/$($Snapshot.runId)"
     if ($seen.Add($key)) { $snapshots.Add($Snapshot) }
 }

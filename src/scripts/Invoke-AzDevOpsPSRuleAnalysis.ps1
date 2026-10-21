@@ -45,6 +45,7 @@ param (
 )
 
 Begin {
+    . "$PSScriptRoot/AssessmentModel.ps1"
     Write-Host "##[group]Importing PowerShell Modules"
 
     try {
@@ -102,7 +103,7 @@ Process {
     if ($jsonFiles.Count -eq 0) {
         Write-Output "##vso[task.logissue type=warning]No JSON files found in: $ReportOutputPath"
         Write-Host "##[warning]No data available for PSRule analysis."
-        return
+        throw 'No JSON data is available for assessment.'
     }    Write-Host "Found $($jsonFiles.Count) JSON file(s) for analysis."
     Write-Output "##vso[task.setprogress value=25;]Found $($jsonFiles.Count) JSON files"
 
@@ -134,12 +135,13 @@ Process {
     }    if ($validJsonFiles.Count -eq 0) {
         Write-Output "##vso[task.logissue type=warning]No valid JSON files found for analysis."
         Write-Host "##[warning]All JSON files were invalid or empty."
-        return
+        throw 'No valid JSON data is available for assessment.'
     }    Write-Host "Validated $($validJsonFiles.Count) JSON file(s) for PSRule analysis."
     Write-Output "##vso[task.setprogress value=40;]Validated $($validJsonFiles.Count) JSON files"
 
     # Run PSRule evaluation with error handling
     $evaluationFailed = $false
+    $option = New-PSRuleOption -OutputAs Detail
     try {
         $invokeParams = @{
             Module        = @('PSRule.Rules.AzureDevOps', 'PSRule.Monitor')
@@ -148,6 +150,7 @@ Process {
             OutputPath    = (Join-Path $ReportOutputPath 'psrule-results.sarif')
             OutputFormat  = 'Sarif'
             ResultVariable = 'assessmentResults'
+            Option        = $option
             Format        = 'Detect'
             Culture       = 'en'
             ErrorAction   = 'SilentlyContinue'
@@ -169,7 +172,7 @@ Process {
             $warningMessage = "No PSRule results were generated. " + `
                 "This might indicate issues with the input files or rules."
             Write-Output "##vso[task.logissue type=warning]$warningMessage"
-            return
+            throw 'The assessment evaluated zero rule results.'
         }        Write-Host "PSRule evaluation completed successfully. Generated $($result.Count) result(s)."
         Write-Output "##vso[task.setprogress value=80;]Generated $($result.Count) PSRule results"
     }
@@ -180,12 +183,13 @@ Process {
         Write-Host "##[warning]PSRule evaluation encountered errors. Some data may not be processed correctly."
 
         # Try to continue with any partial results
+        if ($assessmentResults) { $result = @($assessmentResults | Where-Object { $null -ne $_ }) }
         if ($null -ne $result -and $result.Count -gt 0) {
             Write-Host "##[warning]Proceeding with $($result.Count) partial result(s)."
         }
         else {
             Write-Output "##vso[task.logissue type=error]No results available to send to Log Analytics."
-            return
+            throw 'No assessment results are available; evaluation failed.'
         }
     }
 
@@ -200,8 +204,9 @@ Process {
         $null = & "$PSScriptRoot/Get-AssessmentHistory.ps1" -Organization $runOrganization -Project $env:SYSTEM_TEAMPROJECT -DefinitionId ([int]$env:SYSTEM_DEFINITIONID) -Branch $env:BUILD_SOURCEBRANCH -CurrentBuildId ([int]$env:BUILD_BUILDID) -OutputPath $historyPath
     }
     $module = Get-Module PSRule.Rules.AzureDevOps | Select-Object -First 1
+    $configuration = Get-AssessmentConfiguration -ModuleManifestPath (Join-Path $module.ModuleBase 'PSRule.Rules.AzureDevOps.psd1') -Baseline 'ModuleDefault' -Option $option -PSRuleVersion ([string](Get-Module PSRule).Version)
     $evaluationStatus = @{ Status = $(if ($evaluationFailed -or @($result | Where-Object Outcome -eq 'Error').Count) { 'Failed' } else { 'Completed' }) }
-    & "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Evaluation $evaluationStatus -Results @($result) -Organization $runOrganization -RunId $runId -OutputDirectory $ReportOutputPath -Collection $collection -ModuleVersion ([string]$module.Version) -RuleHelpPath (Join-Path $module.ModuleBase 'en') -HistoryPath $historyPath
+    & "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Evaluation $evaluationStatus -Configuration $configuration -Results @($result) -Organization $runOrganization -RunId $runId -OutputDirectory $ReportOutputPath -Collection $collection -ModuleVersion ([string]$module.Version) -RuleHelpPath (Join-Path $module.ModuleBase 'en') -HistoryPath $historyPath
     Write-Host "##vso[task.uploadsummary]$(Join-Path $ReportOutputPath 'psrule-summary.md')"
     Write-Host '##vso[task.setvariable variable=PSRuleReportReady]true'
     if ($evaluationFailed -or @($result | Where-Object Outcome -eq 'Error').Count) { throw 'Assessment execution errors; reports retained.' }

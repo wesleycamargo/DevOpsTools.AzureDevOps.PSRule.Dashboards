@@ -8,6 +8,8 @@ BeforeAll {
             New-Item $Output -ItemType Directory -Force | Out-Null
             '{}' | Set-Content "$Output/input.json"
             @{Status='Complete';Projects=@()} | ConvertTo-Json | Set-Content (Join-Path (Split-Path $Output) 'collection-status.json')
+            '@{ModuleVersion="1.0"}' | Set-Content (Join-Path $Output 'PSRule.Rules.AzureDevOps.psd1')
+            function New-PSRuleOption { @{ Configuration=@{threshold=3} } }
             function Import-Module { }
             function Get-Module { [pscustomobject]@{Version='1.0';ModuleBase=$Output} }
             function Assert-PSRule {
@@ -15,7 +17,9 @@ BeforeAll {
                 if ($As -ne 'Detail' -or $OutputFormat -ne 'Sarif') { throw 'Incorrect detailed evaluation contract.' }
                 '{}' | Set-Content $OutputPath
                 $records = @('Pass','Fail' | ForEach-Object { [pscustomobject]@{Outcome=$_;RuleName='R';TargetName='resource';TargetType='Repo';Field=@{id='{"organization":"org","project":"p","resourceName":"r"}'}} })
+                if ($Scenario -eq 'Empty') { $records = @() }
                 Set-Variable -Scope 1 -Name $ResultVariable -Value $records
+                if ($Scenario -eq 'TerminatingEvaluation') { throw 'Evaluation stopped after partial results.' }
             }
             function Send-PSRuleMonitorRecord {
                 param([Parameter(ValueFromPipeline)]$InputObject,$WorkspaceId,$SharedKey,$LogName)
@@ -43,5 +47,25 @@ Describe 'Scheduled assessment reporting' {
         $snapshot.statistics.total | Should -Be 2
         $snapshot.statistics.passed | Should -Be 1
         $snapshot.statistics.failed | Should -Be 1
+        $snapshot.configuration.baseline | Should -Be 'ModuleDefault'
+        $snapshot.configuration.rulesetHash | Should -Match '^[a-f0-9]{64}$'
+        $snapshot.configuration.optionHash | Should -Match '^[a-f0-9]{64}$'
+    }
+}
+
+Describe 'Scheduled evaluation failures' {
+    It 'retains available evidence after a terminating PSRule error and blocks ingestion' {
+        $output = "$TestDrive/termination/results"
+        $run = Invoke-ScheduledAssessmentFixture TerminatingEvaluation $output
+        $run.Error | Should -Match 'Assessment execution errors'
+        $snapshot = Get-Content "$output/assessment-snapshot.json" -Raw | ConvertFrom-Json
+        $snapshot.statistics.total | Should -Be 2
+        $snapshot.evaluation.Status | Should -Be Failed
+    }
+    It 'fails visibly when no rule results are available' {
+        $output = "$TestDrive/empty/results"
+        $run = Invoke-ScheduledAssessmentFixture Empty $output
+        $run.Error | Should -Not -BeNullOrEmpty
+        Test-Path "$output/assessment-snapshot.json" | Should -BeFalse
     }
 }

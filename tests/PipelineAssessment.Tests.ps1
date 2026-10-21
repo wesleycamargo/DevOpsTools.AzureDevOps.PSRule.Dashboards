@@ -37,6 +37,7 @@ BeforeAll {
                     if ($Scenario -eq 'ExecutionError') { $results[1].Outcome = 'Error' }
                     Set-Variable -Name $ResultVariable -Scope 1 -Value $results
                     '{}' | Set-Content $OutputPath
+                    if ($Scenario -eq 'TerminatingEvaluation') { throw 'Evaluation stopped after partial results.' }
                 }
                 function az {
                     $global:LASTEXITCODE = 0
@@ -108,5 +109,17 @@ Describe 'Assessment completeness integration' {
         $assessment.Error | Should -Match 'Collection is incomplete'
         (Get-Content "$output/assessment-snapshot.json" -Raw | ConvertFrom-Json).collection.Status | Should -Be Partial
         Test-Path "$output/psrule-dashboard.html" | Should -BeTrue
+    }
+}
+
+Describe 'Terminating evaluation evidence' {
+    It 'retains available results and marks evaluation failed when PSRule terminates' {
+        $output = "$TestDrive/terminating"
+        $assessment = Invoke-TestAssessment TerminatingEvaluation $output
+        $assessment.Error | Should -Match 'rule execution errors'
+        Test-Path "$output/psrule-dashboard.html" | Should -BeTrue
+        $snapshot = Get-Content "$output/assessment-snapshot.json" -Raw | ConvertFrom-Json
+        $snapshot.statistics.total | Should -Be 2
+        $snapshot.evaluation.Status | Should -Be Failed
     }
 }
