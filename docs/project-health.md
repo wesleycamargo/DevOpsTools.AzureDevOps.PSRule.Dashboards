@@ -113,23 +113,62 @@ deduplication, compaction, static essentials, tabs/filters, drawer/breadcrumbs,
 themes, widths 1440/1024/768, zero requests/errors, sandboxed iframe, static
 injection, JavaScript-disabled access, empty/partial/legacy/single-run evidence
 and 5,000-checkpoint pagination. SARIF, Markdown and Monitor paths are preserved.
+The full PowerShell suite has **43 passing tests**, including archive round-trip,
+task environment-input size and report-only bootstrap invocation. Both Node
+calculation suites and both browser suites also pass.
 
 Production screenshots use only these fixtures:
 [Health](images/project-health.png), [Readiness](images/project-readiness.png),
 [Evolution](images/project-evolution.png).
 
-Read-only Azure DevOps inspection downloaded run 116's actual artifact. Offline
-reevaluation of its existing exports preserved all 645 checkpoint identities and
-257 Pass / 388 Fail totals. The final report is **926,552 bytes (0.93 MB)** against
-the brief's **1.76 MB** baseline (about 47% smaller). All three views rendered with
-no page errors or network requests, and Markdown remained byte-for-byte unchanged.
-All **40 Pester tests**, both Node calculation suites and both browser suites pass. Actual
-organization data stays in ignored local report directories.
+Read-only inspection and offline reevaluation of run 116 preserved all 645
+checkpoint identities and its 257 Pass / 388 Fail totals. That local preview was
+926,552 bytes; Markdown was byte-for-byte unchanged. Actual organization data
+stays in ignored local report directories.
 
-Live pipeline publication of this version is **not yet verified**. Definition 17
-is classic and embeds the older renderer; queueing another source branch alone
-does not test this feature. No pipeline YAML/live configuration has been changed
-for this feature, and no production pipeline has been triggered. Identify and
-authorize a non-production publication context first. The installed BlakYaks
-`PublishHtmlReport@1` accepts `reportDir`, `tabName`, `useFilenameTabs`; it has no
-`htmlType: genericHTML` input. Verify the intended extension in that context.
+## Live pipeline validation: 2026-10-21
+
+After explicit user approval, existing classic definition **17** was updated to
+revision **13** and executed in report-only test mode on **devcontainer-agent**
+inside this container. No new definition, pipeline YAML, service connection,
+permission, infrastructure, retention or history-storage changes were made.
+The existing job token supplies same-organization historical Build Read.
+
+| Run | Result | Evidence |
+| --- | --- | --- |
+| [117](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=117) | Failed before assessment | The original 170,554-byte inline input prevented Node from starting: Argument list too long. |
+| [118](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=118) | Succeeded | Assessment, artifact and Project Health report publication tasks succeeded. |
+| [119](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=119&view=blakyaks.azure-pipelines-html-reports.build-html-reports-tab) | Succeeded | Published the three-tab report and retrieved run 118 through the actual artifact history API. |
+
+Select **Project Health & Compliance** on run 119's Reports page. Both successful
+runs contain 645 checkpoints, 257 Pass, 388 Fail and 39.8% global compliance.
+Snapshots, Markdown, SARIF and evaluation logs agree. Both logs explicitly confirm
+report-only completion without Azure Monitor publishing.
+
+Verification downloaded the six published evidence files, checked tab registration,
+and opened the exact report attachment in a sandboxed iframe. All three tabs,
+filter persistence, dark theme and the real A/B comparison passed with zero page
+errors or external requests. Run 118 → 119 has **645 comparable checkpoints**:
+388 persistent failures, zero new/resolved/recurring/not-reassessed findings.
+The latest artifact HTML is **1,167,303 bytes (1.17 MB)** including its additional
+history, about **34% smaller** than the brief's 1.76 MB baseline.
+
+The approved publisher is the installed BlakYaks `PublishHtmlReport@1`, using
+`reportDir`, `tabName` and `useFilenameTabs`; it has no `htmlType` input. Its
+Cheerio pass normalizes HTML markup after artifact publication. Embedded JSON,
+JavaScript and CSS were verified unchanged between artifact and report attachment.
+An automated check of the signed-in Reports portal itself remains unavailable:
+the ephemeral browser redirects to Microsoft sign-in. This limitation does not
+affect the verified published attachment or its standalone/iframe functionality.
+
+### Classic task packaging
+
+`src/scripts/New-ProjectHealthPipelineBundle.ps1` returns a compressed bootstrap
+for the existing classic assessment task. It ZIPs the ten source/config files,
+preserves their repository layout and writes them into the job's temporary
+directory before invoking the existing assessment entry point. This avoids placing
+170 KB in one task environment input. The deployed bootstrap is **48,861 bytes**;
+the script rejects inputs of 64 KB or larger. Exact source bytes, worker launch
+and report-only arguments have regression coverage. Regenerate this bootstrap
+when updating the classic definition; changing a source branch alone does not
+replace embedded classic task code.
