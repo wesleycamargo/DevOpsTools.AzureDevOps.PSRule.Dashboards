@@ -6,7 +6,7 @@
 entry point. It runs manually or daily at 06:00 UTC on `main`, with push and PR
 triggers disabled. `AI-Pool` executes the job; `psrule-azure` supplies the Azure
 DevOps token. Only dashboard source is checked out. The assessment task installs
-`DevOpsTools.AzureDevOps.Assessment` 0.1.0 from PowerShell Gallery and imports that
+`DevOpsTools.AzureDevOps.PSRule` 0.2.0 from PowerShell Gallery and imports that
 exact version, with PSRule 2.9.0. The private module repository is not accessed.
 
 ```text
@@ -66,7 +66,7 @@ permissions and retention; retain runs when their evidence must be preserved.
 
 ## Consolidation and legacy resources
 
-The module repository publishes `DevOpsTools.AzureDevOps.Assessment` through
+The module repository publishes `DevOpsTools.AzureDevOps.PSRule` through
 GitHub Actions to PowerShell Gallery. Assessment installs the published package
 and does not depend on private source access. The weekly module assessment is
 replaced by this daily assessment. Disable old daily assessment,

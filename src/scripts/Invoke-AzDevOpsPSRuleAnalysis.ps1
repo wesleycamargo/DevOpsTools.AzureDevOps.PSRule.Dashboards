@@ -143,7 +143,7 @@ Process {
     # Run PSRule assertions silently (no output)
     try {
         $assertParams = @{
-            Module      = 'DevOpsTools.AzureDevOps.Assessment'
+            Module      = 'DevOpsTools.AzureDevOps.PSRule'
             InputPath   = $jsonFilesGlob
             ErrorAction = 'SilentlyContinue'
         }
@@ -158,7 +158,7 @@ Process {
     # Run PSRule evaluation with error handling
     try {
         $invokeParams = @{
-            Module        = @('DevOpsTools.AzureDevOps.Assessment', 'PSRule.Monitor')
+            Module        = @('DevOpsTools.AzureDevOps.PSRule', 'PSRule.Monitor')
             InputPath     = $jsonFilesGlob
             Format        = 'Detect'
             Culture       = 'en'

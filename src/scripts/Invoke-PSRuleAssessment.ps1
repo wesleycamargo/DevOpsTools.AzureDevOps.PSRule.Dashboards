@@ -17,9 +17,9 @@ if (-not (Get-Module -ListAvailable PSRule | Where-Object Version -eq ([version]
     Install-Module PSRule -RequiredVersion 2.9.0 -Repository PSGallery -Scope CurrentUser -Force -SkipPublisherCheck
 }
 Import-Module PSRule -RequiredVersion 2.9.0 -Force
-Install-Module DevOpsTools.AzureDevOps.Assessment -RequiredVersion $ModuleVersion -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
-Import-Module DevOpsTools.AzureDevOps.Assessment -RequiredVersion $ModuleVersion -Force
-Write-Host "Assessment module: DevOpsTools.AzureDevOps.Assessment $ModuleVersion (PSGallery)."
+Install-Module DevOpsTools.AzureDevOps.PSRule -RequiredVersion $ModuleVersion -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+Import-Module DevOpsTools.AzureDevOps.PSRule -RequiredVersion $ModuleVersion -Force
+Write-Host "Assessment module: DevOpsTools.AzureDevOps.PSRule $ModuleVersion (PSGallery)."
 $accessToken = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
 if ($LASTEXITCODE -ne 0 -or -not $accessToken) { throw 'Could not acquire Azure DevOps authentication.' }
 Connect-AzDevOps -Organization $Organization -OrganizationId $OrganizationId -AccessToken $accessToken
@@ -47,7 +47,7 @@ $option = New-PSRuleOption -OutputStyle Plain -OutputAs Detail
 $evaluationResults = $null
 $evaluationErrors = @()
 if ($inputFiles.Count) {
-    $null = Assert-PSRule -InputPath $inputFiles -Module DevOpsTools.AzureDevOps.Assessment -Baseline Baseline.Default -Culture en -Style Plain -As Detail -Option $option -OutputPath $reportPath -OutputFormat Sarif -ResultVariable evaluationResults -ErrorAction SilentlyContinue -ErrorVariable evaluationErrors
+    $null = Assert-PSRule -InputPath $inputFiles -Module DevOpsTools.AzureDevOps.PSRule -Baseline Baseline.Default -Culture en -Style Plain -As Detail -Option $option -OutputPath $reportPath -OutputFormat Sarif -ResultVariable evaluationResults -ErrorAction SilentlyContinue -ErrorVariable evaluationErrors
     foreach ($errorRecord in $evaluationErrors) {
         if ($errorRecord.FullyQualifiedErrorId -eq 'PSRule.Fail,Assert-PSRule') { continue }
         # PSRule 2.9 probes this optional preference; an unset value means default autoloading.

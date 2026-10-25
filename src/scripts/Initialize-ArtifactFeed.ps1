@@ -33,7 +33,7 @@
         FeedName         = 'Modules'
         PatUser          = 'build'
         PatToken         = 'abc123'
-        CustomModules    = @('DevOpsTools.AzureDevOps.Assessment', 'Another.Module')
+        CustomModules    = @('DevOpsTools.AzureDevOps.PSRule', 'Another.Module')
         Verbose          = $true
     }
 
