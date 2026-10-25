@@ -15,7 +15,7 @@
             "mode": "import",
             "source": {
               "type": "m",
-              "expression": "let\n    Config = [Organization=\"YOUR_ORGANIZATION\", Project=\"YOUR_AZDO_PROJECT\", PipelineDefinitionId=0, ArtifactName=\"psrule-results\", SarifFileName=\"psrule-results.sarif\", MaxBuilds=1]\nin\n    Config"
+              "expression": "let\n    Config = [Organization=\"YOUR_ORGANIZATION\", Project=\"YOUR_AZDO_PROJECT\", PipelineDefinitionId=0, ArtifactName=\"psrule-results\", SarifFileName=\"psrule-results.sarif\", RawArtifactName=\"psrule-raw-data\", MaxBuilds=1]\nin\n    Config"
             }
           }
         ]
@@ -123,6 +123,36 @@
             "formatString": "#,0"
           }
         ]
+      },
+      {
+        "name": "RawFiles",
+        "columns": [
+          {
+            "name": "BuildId",
+            "dataType": "int64",
+            "sourceColumn": "BuildId"
+          },
+          {
+            "name": "FilePath",
+            "dataType": "string",
+            "sourceColumn": "FilePath"
+          },
+          {
+            "name": "RawJson",
+            "dataType": "binary",
+            "sourceColumn": "RawJson"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "RawFiles",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": "let\n  Runs=Table.ToRecords(Builds),\n  Tables=List.Transform(Runs, each try fxRawJsonFiles(_[id]) otherwise #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{})),\n  Combined=if List.Count(Tables)=0 then #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{}) else Table.Combine(Tables),\n  Output=Table.SelectColumns(Combined,{\"BuildId\",\"FilePath\",\"RawJson\"},MissingField.UseNull)\nin Output"
+            }
+          }
+        ]
       }
     ],
     "expressions": [
@@ -135,6 +165,11 @@
         "name": "fxArtifactSarif",
         "kind": "m",
         "expression": "(buildId as number) as record =>\nlet\n C=Config,\n Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",\n Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),\n Res=Info[resource],\n Type=Text.Lower(Text.From(Res[type])),\n Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,\n Parts=Text.Split(Text.From(Res[data]),\"/\"),\n ContainerId=Parts{1},\n Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId&\"/\"&C[ArtifactName],Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName]],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",\n S=Json.Document(Raw)\nin S"
+      },
+      {
+        "name": "fxRawJsonFiles",
+        "kind": "m",
+        "expression": "(buildId as number) as table =>\nlet\n C=Config,\n Artifact=fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",[artifactName=C[RawArtifactName]]),\n Resource=Artifact[resource],\n Type=Text.Lower(Text.From(Resource[type])),\n Parts=Text.Split(Text.From(Resource[data]),\"/\"),\n ContainerId=if Type=\"container\" and List.Count(Parts)>1 then Parts{1} else error \"Raw data must be a File Container artifact.\",\n Root=C[RawArtifactName],\n ItemsResponse=Json.Document(Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId&\"/\"&Root,Query=[itemPath=Root,#\"$format\"=\"json\",#\"api-version\"=\"7.1\",isShallow=\"false\"],Headers=[Accept=\"application/json\"]])),\n Items=if Value.Is(ItemsResponse,type list) then ItemsResponse else Record.FieldOrDefault(ItemsResponse,\"value\",{}),\n JsonItems=List.Select(Items, each Text.EndsWith(Text.Lower(Text.From(Record.FieldOrDefault(_,\"path\",\"\"))),\".json\")),\n Records=List.Transform(JsonItems, (item) =>\n   let\n     ItemPath=Text.From(item[path]),\n     Binary=Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId&\"/\"&Root,Query=[itemPath=ItemPath],Headers=[Accept=\"application/octet-stream\"]]),\n     Data=Json.Document(Binary)\n   in [BuildId=buildId, FilePath=ItemPath, RawJson=Json.FromValue(Data), Data=Data]\n ),\n T=if List.IsEmpty(Records) then #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{}) else Table.FromRecords(Records)\nin T"
       }
     ]
   }
