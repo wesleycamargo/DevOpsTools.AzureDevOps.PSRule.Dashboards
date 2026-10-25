@@ -100,4 +100,83 @@ Describe 'Pipeline assessment report' {
         $data.collectionIssues.Count | Should -Be 3
         $data.collectionIssues[2].project | Should -Be '<script>|project'
     }
+
+    It 'includes organization collector gaps when project collection succeeds' {
+        $status = @{
+            Status = 'Partial'
+            ProjectDiscovery = @{ Command = 'Get-AzDevOpsProject'; Status = 'Completed'; ReasonCodes = @() }
+            OrganizationCollection = @{ Status = 'Partial'; Collectors = @(
+                @{ Command = 'Export-AdoOrganizationGeneralBillingSettings'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }
+                @{ Command = 'Export-AdoOrganizationSecurityPolicies'; Status = 'Partial'; ReasonCodes = @('PermissionDenied', 'MissingRequiredData') }
+            ) }
+            Projects = @(@{ Project = 'project'; Status = 'Complete'; Collectors = @(
+                @{ Command = 'Export-AzDevOpsProject'; Status = 'Completed'; ReasonCodes = @() }
+            ) })
+        }
+        & $scriptPath -Results @((New-ReportResult)) -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.collectionIncomplete | Should -BeTrue
+        $data.collectionIssues.Count | Should -Be 2
+        $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
+        $summary | Should -Match 'Incomplete collection'
+        for ($i = 0; $i -lt 2; $i++) {
+            $expected = $status.OrganizationCollection.Collectors[$i]
+            $issue = $data.collectionIssues[$i]
+            $issue.project | Should -Be '(organization)'
+            $issue.collector | Should -Be $expected.Command
+            $issue.status | Should -Be $expected.Status
+            ($issue.reasonCodes -join ', ') | Should -Be ($expected.ReasonCodes -join ', ')
+            $row = "| \(organization\) | $($expected.Command) | $($expected.Status) | $($expected.ReasonCodes -join ', ') |"
+            $summary | Should -Match ([regex]::Escape($row))
+        }
+    }
+
+    It 'ignores completed and empty organization collectors' {
+        $status = @{
+            Status = 'Complete'
+            OrganizationCollection = @{ Status = 'Complete'; Collectors = @(
+                @{ Command = 'billing'; Status = 'Completed'; ReasonCodes = @() }
+                @{ Command = 'security'; Status = 'Empty'; ReasonCodes = @('EmptyCollection') }
+            ) }
+            Projects = @()
+        }
+        & $scriptPath -Results @((New-ReportResult)) -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.collectionIncomplete | Should -BeFalse
+        $data.collectionIssues.Count | Should -Be 0
+        Get-Content "$TestDrive/psrule-summary.md" -Raw | Should -Not -Match 'Incomplete collection'
+    }
+
+    It 'keeps organization and project diagnostics together and escapes organization text' {
+        $command = '<script>|billing'
+        $reason = '<script>|denied'
+        $status = @{
+            Status = 'Partial'
+            ProjectDiscovery = @{ Command = 'Get-AzDevOpsProject'; Status = 'Partial'; ReasonCodes = @('MissingRequiredData') }
+            OrganizationCollection = @{ Status = 'Unavailable'; Collectors = @(
+                @{ Command = $command; Status = 'Unavailable'; ReasonCodes = @($reason) }
+            ) }
+            Projects = @(@{ Project = 'project'; Status = 'Partial'; Collectors = @(
+                @{ Command = 'repos'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }
+            ) })
+        }
+        & $scriptPath -Results @((New-ReportResult)) -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.collectionIssues.Count | Should -Be 4
+        $data.collectionIssues[0].collector | Should -Be 'Get-AzDevOpsProject'
+        $data.collectionIssues[1].project | Should -Be '(organization)'
+        $data.collectionIssues[1].collector | Should -Be $command
+        $data.collectionIssues[1].status | Should -Be 'Unavailable'
+        $data.collectionIssues[1].reasonCodes[0] | Should -Be $reason
+        $data.collectionIssues[2].collector | Should -Be '(project)'
+        $data.collectionIssues[3].collector | Should -Be 'repos'
+        $html | Should -Not -Match ([regex]::Escape($command))
+        $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
+        $summary | Should -Not -Match '<script>'
+        $summary | Should -Match ([regex]::Escape('&lt;script&gt;\|billing'))
+        $summary | Should -Match ([regex]::Escape('&lt;script&gt;\|denied'))
+    }
 }
