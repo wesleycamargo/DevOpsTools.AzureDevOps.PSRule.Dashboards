@@ -51,7 +51,7 @@
             "mode": "import",
             "source": {
               "type": "m",
-              "expression": "let\n  C=Config,\n  Valid=if C[PipelineDefinitionId]=0 then error \"Configure PipelineDefinitionId in Config\" else true,\n  R=if Valid then fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\"completed\", resultFilter=\"succeeded\", queryOrder=\"finishTimeDescending\", #\"$top\"=Text.From(C[MaxBuilds])]) else null,\n  L=R[value],\n  T=Table.FromRecords(L, null, MissingField.UseNull),\n  Output=Table.SelectColumns(T,{\"id\",\"buildNumber\",\"finishTime\",\"result\"}, MissingField.UseNull)\nin Output"
+              "expression": "let\n  C=Config,\n  Valid=if C[PipelineDefinitionId]=0 then error \"Configure PipelineDefinitionId in Config\" else true,\n  R=if Valid then fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\"completed\", queryOrder=\"finishTimeDescending\", #\"$top\"=Text.From(C[MaxBuilds])]) else null,\n  L=R[value],\n  T=Table.FromRecords(L, null, MissingField.UseNull),\n  Output=Table.SelectColumns(T,{\"id\",\"buildNumber\",\"finishTime\",\"result\"}, MissingField.UseNull)\nin Output"
             }
           }
         ]
