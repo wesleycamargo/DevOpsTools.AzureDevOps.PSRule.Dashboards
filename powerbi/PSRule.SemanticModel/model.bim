@@ -1,112 +1,462 @@
 {
-  "name": "PSRule",
   "compatibilityLevel": 1606,
   "model": {
+    "annotations": [
+      {
+        "name": "PBI_ProTooling",
+        "value": "[\"DevMode\"]"
+      },
+      {
+        "name": "__PBI_TimeIntelligenceEnabled",
+        "value": "1"
+      },
+      {
+        "name": "PBI_QueryOrder",
+        "value": "[\"Config\",\"Builds\",\"AssessmentResults\",\"RawFiles\",\"fxAzDoGet\",\"fxArtifactSarif\",\"fxRawJsonFiles\",\"RawFilesText\"]"
+      }
+    ],
     "culture": "en-US",
+    "dataAccessOptions": {
+      "legacyRedirects": true,
+      "returnErrorValuesAsNull": true
+    },
     "defaultPowerBIDataSourceVersion": "powerBI_V3",
+    "expressions": [
+      {
+        "name": "fxAzDoGet",
+        "expression": "(path as text, q as record) as any => Json.Document(Web.Contents(\"https://dev.azure.com\", [RelativePath=path, Query=Record.Combine({[#\"api-version\"=\"7.1\"],q}), Headers=[Accept=\"application/json\"]]))",
+        "kind": "m",
+        "lineageTag": "a1cdfb02-74eb-46a4-b516-ae9184baaa3e"
+      },
+      {
+        "name": "fxArtifactSarif",
+        "expression": [
+          "(buildId as number) as record =>",
+          "let",
+          " C=Config,",
+          " Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",",
+          " Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),",
+          " Res=Info[resource],",
+          " Type=Text.Lower(Text.From(Res[type])),",
+          " Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,",
+          " Parts=Text.Split(Text.From(Res[data]),\"/\"),",
+          " ContainerId=Parts{1},",
+          " Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId&\"/\"&C[ArtifactName],Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName]],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",",
+          " S=Json.Document(Raw)",
+          "in S"
+        ],
+        "kind": "m",
+        "lineageTag": "77aaf30d-e178-45c9-a05e-ff413dc51857"
+      },
+      {
+        "name": "fxRawJsonFiles",
+        "annotations": [
+          {
+            "name": "PBI_NavigationStepName",
+            "value": "Navigation"
+          },
+          {
+            "name": "PBI_ResultType",
+            "value": "Function"
+          }
+        ],
+        "expression": [
+          "(buildId as number) as table =>",
+          "let",
+          "    C = Config,",
+          "",
+          "    // Get artifact metadata",
+          "    ArtifactEndpoint =",
+          "        C[Organization] & \"/\" &",
+          "        Uri.EscapeDataString(C[Project]) &",
+          "        \"/_apis/build/builds/\" &",
+          "        Text.From(buildId) &",
+          "        \"/artifacts\",",
+          "",
+          "    Artifact = fxAzDoGet(",
+          "        ArtifactEndpoint,",
+          "        [artifactName = C[RawArtifactName]]",
+          "    ),",
+          "",
+          "    Resource = Artifact[resource],",
+          "",
+          "    ArtifactType = Text.Lower(",
+          "        Text.From(Resource[type])",
+          "    ),",
+          "",
+          "    Parts = Text.Split(",
+          "        Text.From(Resource[data]),",
+          "        \"/\"",
+          "    ),",
+          "",
+          "    ContainerId =",
+          "        if ArtifactType = \"container\"",
+          "            and List.Count(Parts) > 1",
+          "        then",
+          "            Parts{1}",
+          "        else",
+          "            error \"Expected a File Container artifact.\",",
+          "",
+          "    Root = C[RawArtifactName],",
+          "",
+          "    ContainerEndpoint =",
+          "        C[Organization] &",
+          "        \"/_apis/resources/Containers/\" &",
+          "        ContainerId & \"/\" & Root,",
+          "",
+          "    // List files recursively",
+          "    Listing = Json.Document(",
+          "        Web.Contents(",
+          "            \"https://dev.azure.com\",",
+          "            [",
+          "                RelativePath = ContainerEndpoint,",
+          "                Query = [",
+          "                    itemPath = Root,",
+          "                    isShallow = \"false\",",
+          "                    #\"$format\" = \"json\",",
+          "                    #\"api-version\" = \"7.1-preview\"",
+          "                ],",
+          "                Headers = [",
+          "                    Accept = \"application/json\"",
+          "                ]",
+          "            ]",
+          "        )",
+          "    ),",
+          "",
+          "    Items =",
+          "        if Value.Is(Listing, type list) then",
+          "            Listing",
+          "        else",
+          "            Record.FieldOrDefault(",
+          "                Listing,",
+          "                \"value\",",
+          "                {}",
+          "            ),",
+          "",
+          "    // Find JSON files",
+          "    JsonItems = List.Select(",
+          "        Items,",
+          "        each Text.EndsWith(",
+          "            Text.Lower(",
+          "                Text.From(",
+          "                    Record.FieldOrDefault(_, \"path\", \"\")",
+          "                )",
+          "            ),",
+          "            \".json\"",
+          "        )",
+          "    ),",
+          "",
+          "    // Download and parse each JSON",
+          "    Rows = List.Transform(",
+          "        JsonItems,",
+          "        (item) =>",
+          "            let",
+          "                ItemPath = Text.From(item[path]),",
+          "",
+          "                Raw = Web.Contents(",
+          "                    \"https://dev.azure.com\",",
+          "                    [",
+          "                        RelativePath = ContainerEndpoint,",
+          "                        Query = [",
+          "                            itemPath = ItemPath",
+          "                        ],",
+          "                        Headers = [",
+          "                            Accept = \"application/octet-stream\"",
+          "                        ]",
+          "                    ]",
+          "                ),",
+          "",
+          "                Parsed = Json.Document(Raw)",
+          "            in",
+          "                [",
+          "                    BuildId = buildId,",
+          "                    FilePath = ItemPath,",
+          "                    RawJson = Json.FromValue(Parsed)",
+          "                ]",
+          "    ),",
+          "",
+          "    Output =",
+          "        if List.IsEmpty(Rows) then",
+          "            #table(",
+          "                {\"BuildId\", \"FilePath\", \"RawJson\"},",
+          "                {}",
+          "            )",
+          "        else",
+          "            Table.FromRecords(Rows)",
+          "in",
+          "    Output"
+        ],
+        "kind": "m",
+        "lineageTag": "9722e64c-384c-44dc-b9dc-7c86d8def877"
+      },
+      {
+        "name": "RawFiles",
+        "annotations": [
+          {
+            "name": "PBI_NavigationStepName",
+            "value": "Navigation"
+          },
+          {
+            "name": "PBI_ResultType",
+            "value": "Table"
+          }
+        ],
+        "expression": [
+          "let",
+          "    Runs = Table.ToRecords(Builds),",
+          "",
+          "    Tables = List.Transform(",
+          "        Runs,",
+          "        each fxRawJsonFiles(_[id])",
+          "    ),",
+          "",
+          "    Combined =",
+          "        if List.IsEmpty(Tables) then",
+          "            #table(",
+          "                {\"BuildId\", \"FilePath\", \"RawJson\"},",
+          "                {}",
+          "            )",
+          "        else",
+          "            Table.Combine(Tables),",
+          "",
+          "    AsText = Table.TransformColumns(",
+          "        Combined,",
+          "        {",
+          "            {",
+          "                \"RawJson\",",
+          "                each Text.FromBinary(",
+          "                    _,",
+          "                    TextEncoding.Utf8",
+          "                ),",
+          "                type text",
+          "            }",
+          "        }",
+          "    ),",
+          "",
+          "    Output = Table.TransformColumnTypes(",
+          "        Table.SelectColumns(",
+          "            AsText,",
+          "            {\"BuildId\", \"FilePath\", \"RawJson\"}",
+          "        ),",
+          "        {",
+          "            {\"BuildId\", Int64.Type},",
+          "            {\"FilePath\", type text},",
+          "            {\"RawJson\", type text}",
+          "        }",
+          "    )",
+          "in",
+          "    Output"
+        ],
+        "kind": "m",
+        "lineageTag": "bc3368d1-ffd6-4335-8440-3c786d0d9c79"
+      }
+    ],
+    "sourceQueryCulture": "pt-BR",
     "tables": [
       {
         "name": "Config",
+        "annotations": [
+          {
+            "name": "PBI_NavigationStepName",
+            "value": "Navigation"
+          },
+          {
+            "name": "PBI_ResultType",
+            "value": "Record"
+          }
+        ],
+        "columns": [
+          {
+            "name": "Name",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "string",
+            "lineageTag": "cc952827-3122-4212-9c5d-77fc1b397d7b",
+            "sourceColumn": "Name",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "Value",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "string",
+            "lineageTag": "9e40a1f5-6377-422d-9675-d2a78c1553d0",
+            "sourceColumn": "Value",
+            "summarizeBy": "none"
+          }
+        ],
         "isHidden": true,
-        "columns": [],
+        "lineageTag": "c14cf1c0-7d3e-436f-a51c-0395d98fdb65",
         "partitions": [
           {
             "name": "Config",
             "mode": "import",
             "source": {
-              "type": "m",
-              "expression": "let\n    Config = [Organization=\"YOUR_ORGANIZATION\", Project=\"YOUR_AZDO_PROJECT\", PipelineDefinitionId=0, ArtifactName=\"psrule-results\", SarifFileName=\"psrule-results.sarif\", RawArtifactName=\"AzureDevOpsRawData\", MaxBuilds=1]\nin\n    Config"
+              "expression": [
+                "let",
+                "    Config = [",
+                "        Organization = \"ai-experiments\",",
+                "        Project = \"PSRule.Rules.AzureDevOps\",",
+                "        PipelineDefinitionId = 19,",
+                "        ArtifactName = \"psrule-results\",",
+                "        SarifFileName = \"psrule-results.sarif\",",
+                "        RawArtifactName = \"AzureDevOpsRawData\",",
+                "        MaxBuilds = 1",
+                "    ]",
+                "in",
+                "    Config"
+              ],
+              "type": "m"
             }
           }
-        ],
-        "lineageTag": "c14cf1c0-7d3e-436f-a51c-0395d98fdb65"
+        ]
       },
       {
         "name": "Builds",
-        "isHidden": false,
+        "annotations": [
+          {
+            "name": "PBI_NavigationStepName",
+            "value": "Navigation"
+          },
+          {
+            "name": "PBI_ResultType",
+            "value": "Table"
+          }
+        ],
         "columns": [
           {
             "name": "id",
-            "dataType": "int64",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "string",
+            "lineageTag": "4b604eb8-898d-41a8-be05-450ddea0936f",
             "sourceColumn": "id",
-            "lineageTag": "4b604eb8-898d-41a8-be05-450ddea0936f"
+            "summarizeBy": "none"
           },
           {
             "name": "buildNumber",
             "dataType": "string",
-            "sourceColumn": "buildNumber",
-            "lineageTag": "4de22989-eb39-47cb-8f76-87beef3c5dcf"
+            "lineageTag": "4de22989-eb39-47cb-8f76-87beef3c5dcf",
+            "sourceColumn": "buildNumber"
           },
           {
             "name": "finishTime",
             "dataType": "string",
-            "sourceColumn": "finishTime",
-            "lineageTag": "32b85895-47e7-4ee2-8814-10d408292f8"
+            "lineageTag": "32b85895-47e7-4ee2-8814-10d408292f8",
+            "sourceColumn": "finishTime"
           },
           {
             "name": "result",
             "dataType": "string",
-            "sourceColumn": "result",
-            "lineageTag": "7ccca636-b9c3-4a3c-aff3-ccd68516f31a"
+            "lineageTag": "7ccca636-b9c3-4a3c-aff3-ccd68516f31a",
+            "sourceColumn": "result"
           }
         ],
+        "lineageTag": "16f9543f-a51e-4ca7-ab1d-e7054dc8f00d",
         "partitions": [
           {
             "name": "Builds",
             "mode": "import",
             "source": {
-              "type": "m",
-              "expression": "let\n  C=Config,\n  Valid=if C[PipelineDefinitionId]=0 then error \"Configure PipelineDefinitionId in Config\" else true,\n  R=if Valid then fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\"completed\", queryOrder=\"finishTimeDescending\", #\"$top\"=Text.From(C[MaxBuilds])]) else null,\n  L=R[value],\n  T=Table.FromRecords(L, null, MissingField.UseNull),\n  Output=Table.SelectColumns(T,{\"id\",\"buildNumber\",\"finishTime\",\"result\"}, MissingField.UseNull)\nin Output"
+              "expression": [
+                "let",
+                "  C=Config,",
+                "  Valid=if C[PipelineDefinitionId]=0 then error \"Configure PipelineDefinitionId in Config\" else true,",
+                "  R=if Valid then fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\"completed\", queryOrder=\"finishTimeDescending\", #\"$top\"=Text.From(C[MaxBuilds])]) else null,",
+                "  L=R[value],",
+                "  T=Table.FromRecords(L, null, MissingField.UseNull),",
+                "  Output=Table.SelectColumns(T,{\"id\",\"buildNumber\",\"finishTime\",\"result\"}, MissingField.UseNull)",
+                "in Output"
+              ],
+              "type": "m"
             }
           }
-        ],
-        "lineageTag": "16f9543f-a51e-4ca7-ab1d-e7054dc8f00d"
+        ]
       },
       {
         "name": "AssessmentResults",
-        "isHidden": false,
         "columns": [
           {
             "name": "BuildId",
-            "dataType": "int64",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "string",
+            "lineageTag": "fe5db2c4-82fc-49c8-8a0b-6e8f7701d226",
             "sourceColumn": "BuildId",
-            "lineageTag": "fe5db2c4-82fc-49c8-8a0b-6e8f7701d226"
+            "summarizeBy": "none"
           },
           {
             "name": "BuildNumber",
             "dataType": "string",
-            "sourceColumn": "BuildNumber",
-            "lineageTag": "20c4f4a6-3fbb-41d7-8c49-54f221a7081e"
+            "lineageTag": "20c4f4a6-3fbb-41d7-8c49-54f221a7081e",
+            "sourceColumn": "BuildNumber"
           },
           {
             "name": "RuleId",
             "dataType": "string",
-            "sourceColumn": "RuleId",
-            "lineageTag": "db372f45-c589-4cd3-a6c6-eb83dfbc81b7"
+            "lineageTag": "db372f45-c589-4cd3-a6c6-eb83dfbc81b7",
+            "sourceColumn": "RuleId"
           },
           {
             "name": "Level",
             "dataType": "string",
-            "sourceColumn": "Level",
-            "lineageTag": "b2b226e3-1cda-4509-ac4b-a4a986ff7aa0"
+            "lineageTag": "b2b226e3-1cda-4509-ac4b-a4a986ff7aa0",
+            "sourceColumn": "Level"
           },
           {
             "name": "Kind",
             "dataType": "string",
-            "sourceColumn": "Kind",
-            "lineageTag": "2186b0b1-e926-4f90-baed-41b95aa15be6"
+            "lineageTag": "2186b0b1-e926-4f90-baed-41b95aa15be6",
+            "sourceColumn": "Kind"
           },
           {
             "name": "Message",
             "dataType": "string",
-            "sourceColumn": "Message",
-            "lineageTag": "6ab4f4be-03c6-4bbb-b3da-78f5ac8b9de4"
+            "lineageTag": "6ab4f4be-03c6-4bbb-b3da-78f5ac8b9de4",
+            "sourceColumn": "Message"
           },
           {
             "name": "TargetUri",
             "dataType": "string",
-            "sourceColumn": "TargetUri",
-            "lineageTag": "f93c1ec7-6e93-482f-a8d5-03a028830bce"
+            "lineageTag": "f93c1ec7-6e93-482f-a8d5-03a028830bce",
+            "sourceColumn": "TargetUri"
+          }
+        ],
+        "lineageTag": "4715acc5-db69-43a2-92ef-217630e99147",
+        "measures": [
+          {
+            "name": "Reported Findings",
+            "expression": "COUNTROWS(AssessmentResults)",
+            "formatString": "#,0",
+            "lineageTag": "ba276ffd-7dc0-4769-8293-d0592fb45a79"
+          },
+          {
+            "name": "Affected Rules",
+            "expression": "DISTINCTCOUNT(AssessmentResults[RuleId])",
+            "formatString": "#,0",
+            "lineageTag": "0018a5ca-a7d8-43f0-8130-671e6797ade6"
+          },
+          {
+            "name": "Error Findings",
+            "expression": "CALCULATE([Reported Findings], AssessmentResults[Level] = \"error\")",
+            "formatString": "#,0",
+            "lineageTag": "bcd67055-123d-451b-aab8-52ddabde15ac"
           }
         ],
         "partitions": [
@@ -114,78 +464,142 @@
             "name": "AssessmentResults",
             "mode": "import",
             "source": {
-              "type": "m",
-              "expression": "let\n  Bs=Table.ToRecords(Builds),\n  Rows=List.Combine(List.Transform(Bs,(b)=>\n    let\n      Sarif=fxArtifactSarif(b[id]),\n      Runs=Record.FieldOrDefault(Sarif,\"runs\",{}),\n      Found=List.Combine(List.Transform(Runs,(run)=>List.Transform(Record.FieldOrDefault(run,\"results\",{}),(r)=>\n        let\n          Msg=Record.FieldOrDefault(r,\"message\",[]),\n          Locs=Record.FieldOrDefault(r,\"locations\",{}),\n          Loc=if List.Count(Locs)>0 then Locs{0} else [],\n          Ph=Record.FieldOrDefault(Loc,\"physicalLocation\",[]),\n          Ar=Record.FieldOrDefault(Ph,\"artifactLocation\",[])\n        in [BuildId=b[id],BuildNumber=b[buildNumber],RuleId=Record.FieldOrDefault(r,\"ruleId\",null),Level=Record.FieldOrDefault(r,\"level\",null),Kind=Record.FieldOrDefault(r,\"kind\",null),Message=Record.FieldOrDefault(Msg,\"text\",null),TargetUri=Record.FieldOrDefault(Ar,\"uri\",null)]\n      )))\n    in Found\n  )),\n  Output=if List.Count(Rows)=0 then #table({\"BuildId\",\"BuildNumber\",\"RuleId\",\"Level\",\"Kind\",\"Message\",\"TargetUri\"},{}) else Table.FromRecords(Rows)\nin Output"
-            }
-          }
-        ],
-        "measures": [
-          {
-            "name": "Reported Findings",
-            "expression": "COUNTROWS(AssessmentResults)",
-            "formatString": "#,0"
-          },
-          {
-            "name": "Affected Rules",
-            "expression": "DISTINCTCOUNT(AssessmentResults[RuleId])",
-            "formatString": "#,0"
-          },
-          {
-            "name": "Error Findings",
-            "expression": "CALCULATE([Reported Findings], AssessmentResults[Level] = \"error\")",
-            "formatString": "#,0"
-          }
-        ],
-        "lineageTag": "4715acc5-db69-43a2-92ef-217630e99147"
-      },
-      {
-        "name": "RawFiles",
-        "columns": [
-          {
-            "name": "BuildId",
-            "dataType": "int64",
-            "sourceColumn": "BuildId"
-          },
-          {
-            "name": "FilePath",
-            "dataType": "string",
-            "sourceColumn": "FilePath"
-          },
-          {
-            "name": "RawJson",
-            "dataType": "binary",
-            "sourceColumn": "RawJson"
-          }
-        ],
-        "partitions": [
-          {
-            "name": "RawFiles",
-            "mode": "import",
-            "source": {
-              "type": "m",
-              "expression": "let\n  Runs=Table.ToRecords(Builds),\n  Tables=List.Transform(Runs, each fxRawJsonFiles(_[id])),\n  Combined=if List.Count(Tables)=0 then #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{}) else Table.Combine(Tables),\n  Output=Table.SelectColumns(Combined,{\"BuildId\",\"FilePath\",\"RawJson\"},MissingField.UseNull)\nin Output"
+              "expression": [
+                "let",
+                "  Bs=Table.ToRecords(Builds),",
+                "  Rows=List.Combine(List.Transform(Bs,(b)=>",
+                "    let",
+                "      Sarif=fxArtifactSarif(b[id]),",
+                "      Runs=Record.FieldOrDefault(Sarif,\"runs\",{}),",
+                "      Found=List.Combine(List.Transform(Runs,(run)=>List.Transform(Record.FieldOrDefault(run,\"results\",{}),(r)=>",
+                "        let",
+                "          Msg=Record.FieldOrDefault(r,\"message\",[]),",
+                "          Locs=Record.FieldOrDefault(r,\"locations\",{}),",
+                "          Loc=if List.Count(Locs)>0 then Locs{0} else [],",
+                "          Ph=Record.FieldOrDefault(Loc,\"physicalLocation\",[]),",
+                "          Ar=Record.FieldOrDefault(Ph,\"artifactLocation\",[])",
+                "        in [BuildId=b[id],BuildNumber=b[buildNumber],RuleId=Record.FieldOrDefault(r,\"ruleId\",null),Level=Record.FieldOrDefault(r,\"level\",null),Kind=Record.FieldOrDefault(r,\"kind\",null),Message=Record.FieldOrDefault(Msg,\"text\",null),TargetUri=Record.FieldOrDefault(Ar,\"uri\",null)]",
+                "      )))",
+                "    in Found",
+                "  )),",
+                "  Output=if List.Count(Rows)=0 then #table({\"BuildId\",\"BuildNumber\",\"RuleId\",\"Level\",\"Kind\",\"Message\",\"TargetUri\"},{}) else Table.FromRecords(Rows)",
+                "in Output"
+              ],
+              "type": "m"
             }
           }
         ]
-      }
-    ],
-    "expressions": [
-      {
-        "name": "fxAzDoGet",
-        "kind": "m",
-        "expression": "(path as text, q as record) as any => Json.Document(Web.Contents(\"https://dev.azure.com\", [RelativePath=path, Query=Record.Combine({[#\"api-version\"=\"7.1\"],q}), Headers=[Accept=\"application/json\"]]))",
-        "lineageTag": "a1cdfb02-74eb-46a4-b516-ae9184baaa3e"
       },
       {
-        "name": "fxArtifactSarif",
-        "kind": "m",
-        "expression": "(buildId as number) as record =>\nlet\n C=Config,\n Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",\n Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),\n Res=Info[resource],\n Type=Text.Lower(Text.From(Res[type])),\n Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,\n Parts=Text.Split(Text.From(Res[data]),\"/\"),\n ContainerId=Parts{1},\n Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId&\"/\"&C[ArtifactName],Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName]],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",\n S=Json.Document(Raw)\nin S",
-        "lineageTag": "77aaf30d-e178-45c9-a05e-ff413dc51857"
-      },
-      {
-        "name": "fxRawJsonFiles",
-        "kind": "m",
-        "expression": "(buildId as number) as table =>\nlet\n    C = Config,\n    ArtifactEndpoint = C[Organization] & \"/\" & Uri.EscapeDataString(C[Project]) &\n        \"/_apis/build/builds/\" & Text.From(buildId) & \"/artifacts\",\n    Artifact = fxAzDoGet(ArtifactEndpoint, [artifactName = C[RawArtifactName]]),\n    Resource = Artifact[resource],\n    ArtifactType = Text.Lower(Text.From(Resource[type])),\n    Parts = Text.Split(Text.From(Resource[data]), \"/\"),\n    ContainerId = if ArtifactType = \"container\" and List.Count(Parts) > 1 then\n        Parts{1}\n    else\n        error \"Expected a File Container artifact with a valid container ID.\",\n    Root = C[RawArtifactName],\n    ContainerEndpoint = C[Organization] & \"/_apis/resources/Containers/\" &\n        ContainerId & \"/\" & Root,\n    Listing = Json.Document(Web.Contents(\"https://dev.azure.com\", [\n        RelativePath = ContainerEndpoint,\n        Query = [itemPath = Root, isShallow = \"false\", #\"$format\" = \"json\", #\"api-version\" = \"7.1\"],\n        Headers = [Accept = \"application/json\"]\n    ])),\n    Items = if Value.Is(Listing, type list) then Listing\n        else Record.FieldOrDefault(Listing, \"value\", {}),\n    JsonItems = List.Select(Items, each\n        Text.EndsWith(Text.Lower(Text.From(Record.FieldOrDefault(_, \"path\", \"\"))), \".json\")),\n    Rows = List.Transform(JsonItems, (item) =>\n        let\n            ItemPath = Text.From(item[path]),\n            Raw = Web.Contents(\"https://dev.azure.com\", [\n                RelativePath = ContainerEndpoint,\n                Query = [itemPath = ItemPath],\n                Headers = [Accept = \"application/octet-stream\"]\n            ]),\n            Parsed = Json.Document(Raw)\n        in\n            [BuildId = buildId, FilePath = ItemPath, RawJson = Json.FromValue(Parsed)]\n    ),\n    Output = if List.IsEmpty(Rows)\n        then #table({\"BuildId\", \"FilePath\", \"RawJson\"}, {})\n        else Table.FromRecords(Rows)\nin\n    Output"
+        "name": "RawFilesText",
+        "annotations": [
+          {
+            "name": "PBI_NavigationStepName",
+            "value": "Navigation"
+          },
+          {
+            "name": "PBI_ResultType",
+            "value": "Table"
+          }
+        ],
+        "columns": [
+          {
+            "name": "BuildId",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "int64",
+            "formatString": "0",
+            "lineageTag": "e7200e69-caf8-4f60-808b-111e60c6f16a",
+            "sourceColumn": "BuildId",
+            "summarizeBy": "count"
+          },
+          {
+            "name": "FilePath",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "string",
+            "lineageTag": "a6d78fd6-bbb7-4364-ac1c-7aedcfd34c64",
+            "sourceColumn": "FilePath",
+            "summarizeBy": "none"
+          },
+          {
+            "name": "RawJson",
+            "annotations": [
+              {
+                "name": "SummarizationSetBy",
+                "value": "Automatic"
+              }
+            ],
+            "dataType": "string",
+            "lineageTag": "68b9f6b8-bdab-4257-aa96-60b0b4a9a570",
+            "sourceColumn": "RawJson",
+            "summarizeBy": "none"
+          }
+        ],
+        "lineageTag": "be957697-01e0-4529-a87b-d3e35c5b1574",
+        "partitions": [
+          {
+            "name": "RawFilesText",
+            "mode": "import",
+            "source": {
+              "expression": [
+                "let",
+                "    Runs = Table.ToRecords(Builds),",
+                "",
+                "    Tables = List.Transform(",
+                "        Runs,",
+                "        each fxRawJsonFiles(_[id])",
+                "    ),",
+                "",
+                "    Combined =",
+                "        if List.IsEmpty(Tables) then",
+                "            #table(",
+                "                {\"BuildId\", \"FilePath\", \"RawJson\"},",
+                "                {}",
+                "            )",
+                "        else",
+                "            Table.Combine(Tables),",
+                "",
+                "    AsText = Table.TransformColumns(",
+                "        Combined,",
+                "        {",
+                "            {",
+                "                \"RawJson\",",
+                "                each Text.FromBinary(",
+                "                    _,",
+                "                    TextEncoding.Utf8",
+                "                ),",
+                "                type text",
+                "            }",
+                "        }",
+                "    ),",
+                "",
+                "    Output = Table.TransformColumnTypes(",
+                "        Table.SelectColumns(",
+                "            AsText,",
+                "            {\"BuildId\", \"FilePath\", \"RawJson\"}",
+                "        ),",
+                "        {",
+                "            {\"BuildId\", Int64.Type},",
+                "            {\"FilePath\", type text},",
+                "            {\"RawJson\", type text}",
+                "        }",
+                "    )",
+                "in",
+                "    Output"
+              ],
+              "type": "m"
+            }
+          }
+        ]
       }
     ]
   }

@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "conceptualSchemaSettings": {},
+  "queries": [
+    {
+      "name": "Config",
+      "lineageTag": "c14cf1c0-7d3e-436f-a51c-0395d98fdb65",
+      "navigationStepName": "Navigation",
+      "text": [
+        "let",
+        "    Config = [Organization=\"/ai-experiments\", Project=\"PSRule.Rules.AzureDevOps\", PipelineDefinitionId=19, ArtifactName=\"psrule-results\", SarifFileName=\"psrule-results.sarif\", MaxBuilds=1]",
+        "in",
+        "    Config"
+      ],
+      "isDirectQuery": false,
+      "lastLoadedAsTableFormulaText": "{\"IncludesReferencedQueries\":false,\"RootFormulaText\":\"let\\n    Config = [Organization=\\\"YOUR_ORGANIZATION\\\", Project=\\\"YOUR_AZDO_PROJECT\\\", PipelineDefinitionId=0, ArtifactName=\\\"psrule-results\\\", SarifFileName=\\\"psrule-results.sarif\\\", MaxBuilds=1]\\nin\\n    Config\",\"ReferencedQueriesFormulaText\":{}}",
+      "loadAsTableDisabled": false,
+      "resultType": "Record",
+      "isHidden": false
+    },
+    {
+      "name": "Builds",
+      "lineageTag": "16f9543f-a51e-4ca7-ab1d-e7054dc8f00d",
+      "navigationStepName": "Navigation",
+      "text": [
+        "let",
+        "  C=Config,",
+        "  Valid=if C[PipelineDefinitionId]=0 then error \"Configure PipelineDefinitionId in Config\" else true,",
+        "  R=if Valid then fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\"completed\", queryOrder=\"finishTimeDescending\", #\"$top\"=Text.From(C[MaxBuilds])]) else null,",
+        "  L=R[value],",
+        "  T=Table.FromRecords(L, null, MissingField.UseNull),",
+        "  Output=Table.SelectColumns(T,{\"id\",\"buildNumber\",\"finishTime\",\"result\"}, MissingField.UseNull)",
+        "in Output"
+      ],
+      "isDirectQuery": false,
+      "lastLoadedAsTableFormulaText": "{\"IncludesReferencedQueries\":false,\"RootFormulaText\":\"let\\n  C=Config,\\n  Valid=if C[PipelineDefinitionId]=0 then error \\\"Configure PipelineDefinitionId in Config\\\" else true,\\n  R=if Valid then fxAzDoGet(C[Organization]&\\\"/\\\"&Uri.EscapeDataString(C[Project])&\\\"/_apis/build/builds\\\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\\\"completed\\\", resultFilter=\\\"succeeded\\\", queryOrder=\\\"finishTimeDescending\\\", #\\\"$top\\\"=Text.From(C[MaxBuilds])]) else null,\\n  L=R[value],\\n  T=Table.FromRecords(L, null, MissingField.UseNull),\\n  Output=Table.SelectColumns(T,{\\\"id\\\",\\\"buildNumber\\\",\\\"finishTime\\\",\\\"result\\\"}, MissingField.UseNull)\\nin Output\",\"ReferencedQueriesFormulaText\":{}}",
+      "loadAsTableDisabled": false,
+      "resultType": "Table",
+      "isHidden": false
+    },
+    {
+      "name": "AssessmentResults",
+      "lineageTag": "4715acc5-db69-43a2-92ef-217630e99147",
+      "navigationStepName": "Navigation",
+      "text": [
+        "let",
+        "  Bs=Table.ToRecords(Builds),",
+        "  Rows=List.Combine(List.Transform(Bs,(b)=>",
+        "    let",
+        "      Sarif=fxArtifactSarif(b[id]),",
+        "      Runs=Record.FieldOrDefault(Sarif,\"runs\",{}),",
+        "      Found=List.Combine(List.Transform(Runs,(run)=>List.Transform(Record.FieldOrDefault(run,\"results\",{}),(r)=>",
+        "        let",
+        "          Msg=Record.FieldOrDefault(r,\"message\",[]),",
+        "          Locs=Record.FieldOrDefault(r,\"locations\",{}),",
+        "          Loc=if List.Count(Locs)>0 then Locs{0} else [],",
+        "          Ph=Record.FieldOrDefault(Loc,\"physicalLocation\",[]),",
+        "          Ar=Record.FieldOrDefault(Ph,\"artifactLocation\",[])",
+        "        in [BuildId=b[id],BuildNumber=b[buildNumber],RuleId=Record.FieldOrDefault(r,\"ruleId\",null),Level=Record.FieldOrDefault(r,\"level\",null),Kind=Record.FieldOrDefault(r,\"kind\",null),Message=Record.FieldOrDefault(Msg,\"text\",null),TargetUri=Record.FieldOrDefault(Ar,\"uri\",null)]",
+        "      )))",
+        "    in Found",
+        "  )),",
+        "  Output=if List.Count(Rows)=0 then #table({\"BuildId\",\"BuildNumber\",\"RuleId\",\"Level\",\"Kind\",\"Message\",\"TargetUri\"},{}) else Table.FromRecords(Rows)",
+        "in Output"
+      ],
+      "isDirectQuery": false,
+      "lastLoadedAsTableFormulaText": "{\"IncludesReferencedQueries\":false,\"RootFormulaText\":\"let\\n  Bs=Table.ToRecords(Builds),\\n  Rows=List.Combine(List.Transform(Bs,(b)=>\\n    let\\n      Sarif=fxArtifactSarif(b[id]),\\n      Runs=Record.FieldOrDefault(Sarif,\\\"runs\\\",{}),\\n      Found=List.Combine(List.Transform(Runs,(run)=>List.Transform(Record.FieldOrDefault(run,\\\"results\\\",{}),(r)=>\\n        let\\n          Msg=Record.FieldOrDefault(r,\\\"message\\\",[]),\\n          Locs=Record.FieldOrDefault(r,\\\"locations\\\",{}),\\n          Loc=if List.Count(Locs)>0 then Locs{0} else [],\\n          Ph=Record.FieldOrDefault(Loc,\\\"physicalLocation\\\",[]),\\n          Ar=Record.FieldOrDefault(Ph,\\\"artifactLocation\\\",[])\\n        in [BuildId=b[id],BuildNumber=b[buildNumber],RuleId=Record.FieldOrDefault(r,\\\"ruleId\\\",null),Level=Record.FieldOrDefault(r,\\\"level\\\",null),Kind=Record.FieldOrDefault(r,\\\"kind\\\",null),Message=Record.FieldOrDefault(Msg,\\\"text\\\",null),TargetUri=Record.FieldOrDefault(Ar,\\\"uri\\\",null)]\\n      )))\\n    in Found\\n  )),\\n  Output=if List.Count(Rows)=0 then #table({\\\"BuildId\\\",\\\"BuildNumber\\\",\\\"RuleId\\\",\\\"Level\\\",\\\"Kind\\\",\\\"Message\\\",\\\"TargetUri\\\"},{}) else Table.FromRecords(Rows)\\nin Output\",\"ReferencedQueriesFormulaText\":{}}",
+      "loadAsTableDisabled": false,
+      "resultType": "Exception",
+      "isHidden": false
+    },
+    {
+      "name": "fxAzDoGet",
+      "lineageTag": "a1cdfb02-74eb-46a4-b516-ae9184baaa3e",
+      "text": [
+        "(path as text, q as record) as any => Json.Document(Web.Contents(\"https://dev.azure.com\", [RelativePath=path, Query=Record.Combine({[#\"api-version\"=\"7.1\"],q}), Headers=[Accept=\"application/json\"]]))"
+      ],
+      "loadAsTableDisabled": true,
+      "resultType": "Function",
+      "isHidden": false
+    },
+    {
+      "name": "fxArtifactSarif",
+      "lineageTag": "77aaf30d-e178-45c9-a05e-ff413dc51857",
+      "text": [
+        "(buildId as number) as record =>",
+        "let",
+        " C=Config,",
+        " Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",",
+        " Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),",
+        " Res=Info[resource],",
+        " Type=Text.Lower(Text.From(Res[type])),",
+        " Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,",
+        " Parts=Text.Split(Text.From(Res[data]),\"/\"),",
+        " ContainerId=Parts{1},",
+        " Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId,Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName],#\"api-version\"=\"7.1\"],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",",
+        " S=Json.Document(Raw)",
+        "in S"
+      ],
+      "loadAsTableDisabled": true,
+      "resultType": "Function",
+      "isHidden": false
+    }
+  ],
+  "queryGroups": [],
+  "culture": "pt-BR",
+  "firewallEnabled": true
+}
