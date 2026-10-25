@@ -134,7 +134,7 @@
       {
         "name": "fxArtifactSarif",
         "kind": "m",
-        "expression": "(buildId as number) as record =>\nlet\n C=Config,\n Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",\n Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),\n Res=Info[resource],\n Type=Text.Lower(Text.From(Res[type])),\n Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,\n Parts=Text.Split(Text.From(Res[data]),\"/\"),\n ContainerId=Parts{1},\n Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId,Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName],#\"api-version\"=\"7.1\"],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",\n S=Json.Document(Raw)\nin S"
+        "expression": "(buildId as number) as record =>\nlet\n C=Config,\n Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",\n Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),\n Res=Info[resource],\n Type=Text.Lower(Text.From(Res[type])),\n Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,\n Parts=Text.Split(Text.From(Res[data]),\"/\"),\n ContainerId=Parts{1},\n Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId&\"/\"&C[ArtifactName],Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName],#\"api-version\"=\"7.1\"],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",\n S=Json.Document(Raw)\nin S"
       }
     ]
   }
