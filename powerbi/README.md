@@ -28,20 +28,12 @@ SARIF can omit successful assessments, so do not calculate a compliance rate bas
 The Entra ID custom connector is a future replacement for PAT authentication.
 
 
-## Raw Azure DevOps data (new, unvalidated)
+## Existing raw Pipeline Artifact
 
-The primary data source is now intended to be `RawFiles` instead of SARIF findings.
+The assessment run 138 already exposes **AzureDevOpsRawData** (a Pipeline Artifact) with project folders and `.ado.json` files. **No pipeline modification is required**. The original `psrule-results` SARIF report remains available as a secondary data source.
 
-The manual assessment pipeline (`azure-pipelines/publish-workbooks.yml`) has a **branch-only** addition to publish the original export directory as a File Container Build Artifact named `psrule-raw-data` after export succeeds, even if later rule assertions fail. This does **not** change the existing `AzureDevOpsRawData` Pipeline Artifact in the daily pipeline. The change only takes effect on a pipeline run that uses this branch or after merging, and only if raw export completes.
+The `fxRawJsonFiles` query now calls the Azure DevOps Build Artifacts API to retrieve the Pipeline Artifact's dedup manifest (`resource.data`), then downloads each JSON blob via the Build Artifacts Get File endpoint using `fileId` and `fileName`. `RawFiles` has `BuildId`, `FilePath` and `RawJson`.
 
-The Power Query `fxRawJsonFiles` queries the build artifact metadata, enumerates recursive JSON file paths and requests each JSON file individually. The `RawFiles` table provides `BuildId`, `FilePath`, and `RawJson` (binary JSON) without assuming unverified JSON fields. Other semantic tables are unchanged.
+To test, open the PBIP, set `Config` for the organization `ai-experiments`, project `PSRule.Rules.AzureDevOps`, and the **pipeline definition ID** (not the build ID 138). Use `MaxBuilds=1` and refresh `RawFiles` with your existing Basic/PAT credential.
 
-**First-run validation:**
-1. Execute the manual assessment against the updated branch (the currently published run 138 predates the new raw artifact).
-2. Confirm `psrule-raw-data` is available under that run's published artifacts.
-3. Refresh `RawFiles` in Power BI with `MaxBuilds=1`. A build without the new artifact will fail deliberately rather than silently returning an empty report.
-4. Inspect a real JSON file's schema before adding normalized tables for projects, repositories, pipelines and settings.
-
-The REST File Container item-list response structure, authentication and report compatibility have **not** been validated in Power BI Desktop; if the connector returns an error, inspect the API response instead of assuming the source file is empty. Existing placeholder pages are not final dashboards.
-
-**Security:** raw data may include internal organization settings or other confidential metadata. Restrict permissions to the artifacts and report accordingly. No PAT is written to Git.
+**Not yet verified in Power BI Desktop.** The pipeline manifest can contain `manifestReferences` for nested directories; the current query processes JSON entries directly listed under `items`, so additional manifest traversal may be needed to include all project subfolders. Verify file count and paths against the artifact browser before using the data. Do not interpret missing rows as missing resources until this check passes.
