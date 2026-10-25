@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "PSRule"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "e21e7c63-0aae-449e-8358-f584e2bce69d"
+  }
+}

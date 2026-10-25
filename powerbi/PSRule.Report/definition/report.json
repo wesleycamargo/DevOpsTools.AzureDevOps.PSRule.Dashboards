@@ -4,11 +4,27 @@
     "baseTheme": {
       "name": "CY24SU10",
       "reportVersionAtImport": {
-        "visual": "2.5.0",
-        "report": "3.3.0",
-        "page": "2.3.0"
+        "visual": "2.14.0",
+        "report": "3.4.0",
+        "page": "2.3.1"
       },
       "type": "SharedResources"
     }
+  },
+  "resourcePackages": [
+    {
+      "name": "SharedResources",
+      "type": "SharedResources",
+      "items": [
+        {
+          "name": "CY24SU10",
+          "path": "BaseThemes/CY24SU10.json",
+          "type": "BaseTheme"
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "useEnhancedTooltips": false
   }
 }
