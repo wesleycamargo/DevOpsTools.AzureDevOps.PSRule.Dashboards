@@ -44,6 +44,11 @@ $collectionIssues = @(
     if ($CollectionStatus.ProjectDiscovery -and $CollectionStatus.ProjectDiscovery.Status -notin @('Completed', 'Empty')) {
         [pscustomobject]@{ project = '(organization)'; collector = $CollectionStatus.ProjectDiscovery.Command; status = $CollectionStatus.ProjectDiscovery.Status; reasonCodes = @($CollectionStatus.ProjectDiscovery.ReasonCodes) }
     }
+    foreach ($collector in $CollectionStatus.OrganizationCollection.Collectors) {
+        if ($collector.Status -notin @('Completed', 'Empty')) {
+            [pscustomobject]@{ project = '(organization)'; collector = $collector.Command; status = $collector.Status; reasonCodes = @($collector.ReasonCodes) }
+        }
+    }
     foreach ($project in $CollectionStatus.Projects) {
         if ($project.Status -ne 'Complete') {
             [pscustomobject]@{ project = $project.Project; collector = '(project)'; status = $project.Status; reasonCodes = @() }
