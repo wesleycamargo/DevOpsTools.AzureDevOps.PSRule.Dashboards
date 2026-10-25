@@ -19,7 +19,7 @@ Describe 'Pipeline assessment report' {
         & $scriptPath -Results $results -Organization organization -RunId organization/42 -Timestamp ([datetime]'2026-10-09T12:00:00Z') -OutputDirectory $TestDrive
         $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
         $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
-        $html | Should -Match 'PSRule Dashboard'
+        $html | Should -Match 'Project Health &amp; Compliance'
         $html | Should -Match 'organization/42'
         $summary | Should -Match '\| Total checkpoints \| 3 \|'
         $summary | Should -Match '\| Passed checkpoints \| 1 \|'
@@ -49,6 +49,7 @@ Describe 'Pipeline assessment report' {
     It 'reads serialized resource IDs and displays absent or invalid metadata as Unknown' {
         $known = New-ReportResult
         $missing = New-ReportResult
+        $missing.RuleName = 'Metadata.NotAvailable'
         $missing.Field.id = 'not-json'
         $missing.Info = $null
         & $scriptPath -Results @($known, $missing) -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
@@ -56,8 +57,8 @@ Describe 'Pipeline assessment report' {
         $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
         $data.results[0].project | Should -Be 'prøject'
         $data.results[1].project | Should -Be 'Unknown'
-        $data.results[1].severity | Should -Be 'Unknown'
-        $data.results[1].displayName | Should -Be 'Unknown'
+        $data.rules.($data.results[1].ruleName).severity | Should -Be 'Unknown'
+        $data.rules.($data.results[1].ruleName).displayName | Should -Be 'Unknown'
     }
 
     It 'keeps HTML and script-like text as data without losing Unicode' {
@@ -82,8 +83,137 @@ Describe 'Pipeline assessment report' {
         $summary | Should -Match '\| Rule\\\|with newline \| 2 \|'
     }
 
-    It 'rejects an empty assessment instead of producing success-looking reports' {
-        { & $scriptPath -Results @() -Organization organization -RunId organization/42 -OutputDirectory "$TestDrive/empty" } | Should -Throw
-        Test-Path "$TestDrive/empty/psrule-dashboard.html" | Should -BeFalse
+    It 'renders empty data and safely includes collection diagnostics' {
+        $status = @{ Status = 'Unavailable'; ProjectDiscovery = @{ Command = 'Get-AzDevOpsProject'; Status = 'Failed'; ReasonCodes = @('ProjectDiscoveryFailed') }; Projects = @(
+            @{ Project = '<script>|project'; Status = 'Unavailable'; Collectors = @(@{ Command = 'billing'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }) }
+        ) }
+        & $scriptPath -Results @() -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory "$TestDrive/empty"
+        $summary = Get-Content "$TestDrive/empty/psrule-summary.md" -Raw
+        $summary | Should -Match 'Incomplete collection'
+        $summary | Should -Match 'No assessment results available'
+        $summary | Should -Match '\| Total checkpoints \| 0 \|'
+        $summary | Should -Match 'ProjectDiscoveryFailed'
+        $summary | Should -Not -Match '<script>|No failures'
+        $html = Get-Content "$TestDrive/empty/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.results.Count | Should -Be 0
+        $data.collectionIncomplete | Should -BeTrue
+        $data.collectionIssues.Count | Should -Be 3
+        $data.collectionIssues[2].project | Should -Be '<script>|project'
+    }
+
+    It 'includes organization collector gaps when project collection succeeds' {
+        $status = @{
+            Status = 'Partial'
+            ProjectDiscovery = @{ Command = 'Get-AzDevOpsProject'; Status = 'Completed'; ReasonCodes = @() }
+            OrganizationCollection = @{ Status = 'Partial'; Collectors = @(
+                @{ Command = 'Export-AdoOrganizationGeneralBillingSettings'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }
+                @{ Command = 'Export-AdoOrganizationSecurityPolicies'; Status = 'Partial'; ReasonCodes = @('PermissionDenied', 'MissingRequiredData') }
+            ) }
+            Projects = @(@{ Project = 'project'; Status = 'Complete'; Collectors = @(
+                @{ Command = 'Export-AzDevOpsProject'; Status = 'Completed'; ReasonCodes = @() }
+            ) })
+        }
+        & $scriptPath -Results @((New-ReportResult)) -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.collectionIncomplete | Should -BeTrue
+        $data.collectionIssues.Count | Should -Be 2
+        $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
+        $summary | Should -Match 'Incomplete collection'
+        for ($i = 0; $i -lt 2; $i++) {
+            $expected = $status.OrganizationCollection.Collectors[$i]
+            $issue = $data.collectionIssues[$i]
+            $issue.project | Should -Be '(organization)'
+            $issue.collector | Should -Be $expected.Command
+            $issue.status | Should -Be $expected.Status
+            ($issue.reasonCodes -join ', ') | Should -Be ($expected.ReasonCodes -join ', ')
+            $row = "| \(organization\) | $($expected.Command) | $($expected.Status) | $($expected.ReasonCodes -join ', ') |"
+            $summary | Should -Match ([regex]::Escape($row))
+        }
+    }
+
+    It 'ignores completed and empty organization collectors' {
+        $status = @{
+            Status = 'Complete'
+            OrganizationCollection = @{ Status = 'Complete'; Collectors = @(
+                @{ Command = 'billing'; Status = 'Completed'; ReasonCodes = @() }
+                @{ Command = 'security'; Status = 'Empty'; ReasonCodes = @('EmptyCollection') }
+            ) }
+            Projects = @()
+        }
+        & $scriptPath -Results @((New-ReportResult)) -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.collectionIncomplete | Should -BeFalse
+        $data.collectionIssues.Count | Should -Be 0
+        Get-Content "$TestDrive/psrule-summary.md" -Raw | Should -Not -Match 'Incomplete collection'
+    }
+
+    It 'keeps organization and project diagnostics together and escapes organization text' {
+        $command = '<script>|billing'
+        $reason = '<script>|denied'
+        $status = @{
+            Status = 'Partial'
+            ProjectDiscovery = @{ Command = 'Get-AzDevOpsProject'; Status = 'Partial'; ReasonCodes = @('MissingRequiredData') }
+            OrganizationCollection = @{ Status = 'Unavailable'; Collectors = @(
+                @{ Command = $command; Status = 'Unavailable'; ReasonCodes = @($reason) }
+            ) }
+            Projects = @(@{ Project = 'project'; Status = 'Partial'; Collectors = @(
+                @{ Command = 'repos'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }
+            ) })
+        }
+        & $scriptPath -Results @((New-ReportResult)) -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.collectionIssues.Count | Should -Be 4
+        $data.collectionIssues[0].collector | Should -Be 'Get-AzDevOpsProject'
+        $data.collectionIssues[1].project | Should -Be '(organization)'
+        $data.collectionIssues[1].collector | Should -Be $command
+        $data.collectionIssues[1].status | Should -Be 'Unavailable'
+        $data.collectionIssues[1].reasonCodes[0] | Should -Be $reason
+        $data.collectionIssues[2].collector | Should -Be '(project)'
+        $data.collectionIssues[3].collector | Should -Be 'repos'
+        $html | Should -Not -Match ([regex]::Escape($command))
+        $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
+        $summary | Should -Not -Match '<script>'
+        $summary | Should -Match ([regex]::Escape('&lt;script&gt;\|billing'))
+        $summary | Should -Match ([regex]::Escape('&lt;script&gt;\|denied'))
+    }
+}
+
+Describe 'Report contract and history resilience' {
+    It 'validates the emitted snapshot against the documented JSON schema' {
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive
+        Get-Content "$TestDrive/assessment-snapshot.json" -Raw | Test-Json -SchemaFile "$PSScriptRoot/../docs/assessment-snapshot.schema.json" | Should -BeTrue
+    }
+    It 'keeps current evidence when an imported historical dataset is corrupt' {
+        'invalid json' | Set-Content "$TestDrive/corrupt.json"
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive -HistoryPath "$TestDrive/corrupt.json"
+        Get-Content "$TestDrive/psrule-dashboard.html" -Raw | Should -Match 'Historical dataset is unreadable'
+        Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
+    }
+}
+
+Describe 'Historical dataset evidence validation' {
+    It 'excludes a structurally invalid historical snapshot without breaking the current dashboard' {
+        @{schemaVersion='1.0';snapshots=@(@{schemaVersion='1.0';runId='org/bad';results=@(@{outcome='Fail'})});limitations=@()} | ConvertTo-Json -Depth 10 | Set-Content "$TestDrive/invalid-history.json"
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive -HistoryPath "$TestDrive/invalid-history.json"
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.history.snapshots.Count | Should -Be 0
+        $data.history.limitations -join ' ' | Should -Match 'comparison metadata is missing'
+        Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
+    }
+}
+
+Describe 'Template-looking finding text' {
+    It 'preserves template placeholders inside assessment data as literal strings' {
+        $literal = '__DASHBOARD_JS__ __DASHBOARD_CSS__ __REPORT_DATA__'
+        $result = New-ReportResult Fail $literal
+        & $scriptPath -Results @($result) -Organization org -RunId org/1 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.results[0].ruleName | Should -Be $literal
     }
 }

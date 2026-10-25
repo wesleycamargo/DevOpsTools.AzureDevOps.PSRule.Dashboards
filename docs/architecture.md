@@ -1,106 +1,108 @@
 # Dashboard architecture
 
-This document describes the local source on 10 October 2026, including uncommitted changes.
-It does not establish the current state of deployed Azure resources or remote branches.
+## Assessment pipeline
 
-## Components
+`azure-pipelines/run-assessment.yml` is the dashboard repository's only pipeline
+entry point. It runs manually or daily at 06:00 UTC on `main`, with push and PR
+triggers disabled. `AI-Pool` executes the job; `psrule-azure` supplies the Azure
+DevOps token. Only dashboard source is checked out. The assessment task installs
+`DevOpsTools.AzureDevOps.PSRule` 0.2.0 from PowerShell Gallery and imports that
+exact version, with PSRule 2.9.0. The module repository is not accessed.
 
-| Component | Responsibility |
-| --- | --- |
-| `Invoke-PSRuleWorkbookAssessment.ps1` | Import the supplied rule module, collect inputs, evaluate rules, create reports, publish results, and check ingestion. |
-| `Export-PSRulePipelineReport.ps1` and `src/templates/psrule-dashboard.html` | Convert detailed results into a standalone HTML snapshot and Markdown summary. |
-| `Publish-PSRuleWorkbookResults.ps1` | Convert detailed results to the ingestion schema and send authenticated batches. |
-| `Deploy-PSRuleWorkbooks.ps1` and `src/bicep/workbooks.bicep` | Deploy and inspect the workspace, result table, ingestion rule, and five workbooks. |
-| `src/bicep/main.bicep` and older analysis scripts | Preserve the original deployment and shared-key Monitor path. This path is distinct from the manual workbook pipeline. |
-
-## Manual assessment pipeline
-
-`azure-pipelines/publish-workbooks.yml` disables push and PR triggers and uses the self-hosted `AI-Pool`.
-It checks out dashboards under `s/dashboards` and rules under `s/rules`.
-The rule repository resource selects `main` through the configured GitHub endpoint.
-The Azure CLI task uses the `psrule-azure` service connection.
-
-```mermaid
-flowchart TD
-    Checkout["Check out dashboards and rule source"] --> Auth["Azure service connection and Azure CLI tokens"]
-    Auth --> Export["Export organization JSON"]
-    Export --> Evaluate["PSRule 2.9.0 and Baseline.Default"]
-    Evaluate --> Reports["Write SARIF, HTML, and Markdown"]
-    Reports --> Summary["Attach Markdown and set PSRuleReportReady"]
-    Summary --> Ingest["Publish Custom-PSRule batches"]
-    Ingest --> Query["Check total and failed counts in PSRule_CL"]
-    Query --> Artifact["Publish available psrule-results artifact"]
-    Artifact --> HTML["Attach HTML report when ready"]
-    Ingest --> Workbooks["Azure Monitor Workbooks query PSRule_CL"]
+```text
+Schedule / manual -> Check out dashboards -> Install Gallery modules
+                                                       |
+                                                       v
+                                                Export organization
+                                                       |          |
+                                                       |          +-> Raw artifact
+                                                       v
+                                                Collection diagnostics
+                                                       |
+                                                       v
+                                                Evaluate rules
+                                                       |
+                                                       v
+                                             HTML + Markdown + SARIF
+                                                       |
+                                                       v
+                                  Project Health + Readiness + Evolution
 ```
 
-Artifact publication uses `succeededOrFailed()`, so it can execute after the assessment task fails.
-HTML publication additionally requires `PSRuleReportReady` to equal `true`.
-The assessment script sets this variable after report generation and before ingestion.
-Expected rule failures remain visible in reports. Zero results and rule execution errors stop report generation.
-Collection does not currently enable strict completeness or write a completeness report.
+`Invoke-PSRuleAssessment.ps1` collects organization data, evaluates PSRule 2.9.0
+with `Baseline.Default`, records configuration/module identity and completed
+evaluation evidence, and invokes `Export-PSRulePipelineReport.ps1`. No Azure
+resource deployment, Monitor ingestion, or Log Analytics query is part of the run.
+The package version is pinned by `-ModuleVersion` in the YAML. Update the pin after
+publishing a new module version. Installation and import failures remain red.
 
-The `psrule-results` artifact contains `psrule-results.sarif`, `psrule-dashboard.html`, and `psrule-summary.md` when generation succeeds.
-The script also attaches Markdown to the run summary.
-`PublishHtmlReport@1` requires the HTML Reports extension and uses the HTML file as `reportDir`.
-Open the run's **Reports** page to view `PSRule Dashboard`.
-The **Code Coverage** page is a separate report surface. This pipeline contains no coverage publication task.
+The script resets its dedicated `raw-export` and `reports` staging directories
+before each attempt, so reused agents cannot contribute stale results. Collection
+status is outside the resource input directory. Available exports are evaluated
+without the module's optional `-Strict` policy. Recorded collection errors become
+escaped pipeline warnings; HTML and Markdown list affected projects, collectors,
+statuses, and reason codes. Missing exports never create passing results. Totals
+cover only available evaluated data.
 
-## Azure result contract
+Incomplete collection and absent assessment results finish as `SucceededWithIssues`
+(yellow) after report generation. No inputs or zero results produce a diagnostic
+dashboard with zero evaluated checkpoints and no compliance conclusion. SARIF is
+retained only when evaluation produces results. Authentication, terminating export
+errors, rule execution, report writing, and artifact publication failures remain
+red. Rule violations remain findings, rather than infrastructure failures.
 
-`workbooks.bicep` creates a Log Analytics workspace, the `PSRule_CL` table, and a direct data collection rule.
-The input stream is `Custom-PSRule`. Its data flow writes to `Custom-PSRule_CL`.
+## Report interfaces
 
-| Column | Meaning |
+| Artifact | Contents |
 | --- | --- |
-| `TimeGenerated` | UTC publication timestamp. |
-| `RunId_s` | Organization name and pipeline build ID. |
-| `RuleName_s`, `DisplayName_s` | Rule identifier and display name. |
-| `TargetName_s`, `TargetType_s` | PSRule target identity and type. |
-| `Outcome_s` | Rule outcome. |
-| `Annotations_s` | JSON annotations from the rule information. |
-| `Field_s` | JSON target fields, including structured identity metadata when available. |
+| `AzureDevOpsRawData` | Original JSON exports, preserving project subfolders; partial data survives collection failure. |
+| `psrule-results` | `collection-status.json`, persisted `assessment-snapshot.json` (schema 1.0), available `assessment-history.json`, and SARIF, HTML and Markdown when generated. |
 
-The publisher requests an Azure Monitor bearer token and submits batches of at most 100 records.
-It rejects a batch body larger than 900,000 bytes. It retries HTTP 429 and HTTP 5xx responses up to four times.
-All records in one publisher invocation share a timestamp and run ID.
+Both artifact tasks use `succeededOrFailed()`. HTML publication also requires
+`PSRuleReportReady=true`, set only after report generation. The installed BlakYaks
+`PublishHtmlReport@1` task displays `Project Health & Compliance` on the run's Reports page.
+The Markdown summary is attached with `task.uploadsummary`. HTML is self-contained
+and can be downloaded and opened offline. Raw data and reports use pipeline
+permissions and retention; retain runs when their evidence must be preserved.
 
-Assessment obtains a separate query token and checks total and failed counts for the run.
-It makes up to 45 query attempts, with 20-second waits after unsuccessful attempts.
-Excess records trigger a duplicate-record error. A timeout fails the assessment task.
-This check does not roll back partial ingestion or prevent a repeated submission.
+## Project Health and historical evidence
 
-Five workbook modules supply the main view, resource state, rule summary, resources by rule, and rule hits by resource.
-The template configures 30-day retention and public ingestion and query endpoints.
-It does not define identity role assignments. Required ingestion and query access must exist outside this template.
+The [three-tab report](project-health.md) uses `AssessmentModel.ps1` for persisted
+schema 1.0 evidence and `ProjectHealthReport.ps1` for compact display schema 2.0.
+Static HTML and embedded scripts/styles work offline. Organization discovery and
+collector gaps remain visible in every tab and without JavaScript; zero results
+show an explicit diagnostic instead of a compliance conclusion.
 
-## Other pipeline entry points
+`Get-AssessmentHistory.ps1` reads retained `psrule-results` artifacts from the same
+pipeline and branch, using the mapped `System.AccessToken`. History permission or
+retention gaps are displayed as limitations. The runner hashes installed module
+source/help and PSRule options; incompatible configuration/module identities or
+incomplete evidence cannot establish improvement. Current assessment collection,
+error and artifact behavior remains as documented above.
 
-| Definition | Structure and dependency |
-| --- | --- |
-| `azure-pipelines/deploy-workbooks.yml` | Manual deployment on `AI-Pool` through `psrule-azure`. Validates and previews Bicep, creates deployment `psrule-workbooks`, and checks workbook content and table queries. |
-| `azure-pipelines/azure-pipelines.yml` | Daily 06:00 UTC schedule on `main`, hosted Ubuntu agent, one `Run` stage. Uses `devops-assessment-vg001`, an Azure Artifacts module, and the older Monitor analysis script. Publishes raw and analysis artifacts from the export directory. |
+## Consolidation and legacy resources
 
-The manual assessment reads outputs from deployment `psrule-workbooks`.
-These outputs supply the workspace ID, ingestion endpoint, and immutable rule ID.
-The YAML files do not chain deployment and assessment automatically.
+The module repository publishes `DevOpsTools.AzureDevOps.PSRule` through
+GitHub Actions to PowerShell Gallery. Assessment installs the published package
+and does not depend on private source access. The weekly module assessment is
+replaced by this daily assessment. Disable old daily assessment,
+weekly assessment and workbook deployment definitions after validating the replacement.
+Update definition mappings and remove UI schedule overrides during cutover.
 
-## Operation and validation
+Standalone Bicep and publishing scripts remain for existing installations. They
+are outside the assessment execution path; existing Azure resources are not deleted.
+The live classic definition may contain a newer Project Health source bundle than
+`main`; preserve that reporter when updating it rather than replacing it with an
+older template. The reviewed reporter is now included in the source-backed YAML flow.
+`Invoke-PSRuleWorkbookAssessment.ps1` and its compressed task bundler remain
+standalone legacy compatibility utilities; `run-assessment` never calls them.
+Historical run IDs and their report artifacts remain unchanged.
 
-Protect artifacts and workspace results because they contain organization and target identities.
-Restrict service-connection and variable-group access. Raw exports in the older pipeline require additional care.
-Pipeline retention controls snapshots. Log Analytics retention controls historical records.
+## Validation
 
-Run offline dashboard tests with `Invoke-Pester ./tests -Output Detailed` from this repository.
-Browser checks use `tests/PipelineReport.Browser.Tests.cjs` and Playwright Chromium.
-They exercise iframe rendering. They do not establish extension installation or live workspace permissions.
-
-The [module architecture](../../PSRule.Rules.AzureDevOps/docs/architecture.md) contains the complete pipeline inventory, module boundaries, risks, and decision records.
-That link assumes the two repositories retain their current workspace directory names.
-
-### Source entry points
-
-- [Manual assessment pipeline](../azure-pipelines/publish-workbooks.yml) and [assessment script](../src/scripts/Invoke-PSRuleWorkbookAssessment.ps1).
-- [Report generator](../src/scripts/Export-PSRulePipelineReport.ps1) and [ingestion publisher](../src/scripts/Publish-PSRuleWorkbookResults.ps1).
-- [Deployment pipeline](../azure-pipelines/deploy-workbooks.yml), [deployment script](../src/scripts/Deploy-PSRuleWorkbooks.ps1), and [workbook infrastructure](../src/bicep/workbooks.bicep).
-- [Legacy daily pipeline](../azure-pipelines/azure-pipelines.yml) and [legacy infrastructure](../src/bicep/main.bicep).
+Run `Invoke-Pester ./tests -Output Detailed`, `npm test` and `npm run test:browser`.
+Assessment tests cover complete and
+incomplete collection, raw file retention, repeat attempts, zero results, execution
+errors, and rejection of Azure deployment/Monitor requests. Browser checks use
+`node tests/PipelineReport.Browser.Tests.cjs` with Playwright Chromium and exercise
+the report in an iframe. Verify live artifact and HTML task publication separately.

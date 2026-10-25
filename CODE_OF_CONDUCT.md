@@ -1,4 +1,4 @@
-# Code of Conduct - PsrAzDo-workbooks
+# Code of Conduct - DevOpsTools.AzureDevOps.PSRule.Dashboards
 
 ## Our Pledge
 

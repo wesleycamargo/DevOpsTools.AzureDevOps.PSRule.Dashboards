@@ -1,30 +1,39 @@
-# PSRule.Rules.AzureDevOps Azure Monitor Workbooks
+# DevOpsTools.AzureDevOps.PSRule.Dashboards
 
 ## Overview
 
-This repository contains an Azure Monitor Workbooks deployment
-written in [Bicep](https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/)
-for analyzing [PSRule.Rules.AzureDevOps](https://github.com/cloudyspells/PSRule.Rules.AzureDevOps)
-results captured to an Azure Log Analytics workspace. Azure Pipelines and GitHub Actions
-yaml templates are included to setup a daily analysis of Azure DevOps Organizations with
-PSRule. The analysis will loop through all projects in the organization and capture
-the results.
+`run-assessment` collects Azure DevOps data and presents PSRule findings directly
+in the pipeline. It runs daily at 06:00 UTC on `main`, or manually, using `AI-Pool`.
+It does not deploy Azure workbooks or publish to Log Analytics.
 
-[![Demo video on YouTube](https://img.youtube.com/vi/bcF7mf3MlbQ/0.jpg)](https://www.youtube.com/watch?v=bcF7mf3MlbQ)
+## Getting started
 
-## Getting Started
+Create or update the assessment definition to use `azure-pipelines/run-assessment.yml`.
+Authorize the existing `psrule-azure` service connection for Azure DevOps collection
+and `github.com_wesleycamargo` for checking out this dashboard repository.
+The service principal needs read access to the assessed organization and projects.
+No workspace, ingestion rule, shared workspace key, or Azure deployment is required.
 
-The following steps will guide you through deploying the log analytics workspace and
-workbooks to your Azure subscription.
+The pipeline installs `DevOpsTools.AzureDevOps.PSRule` **0.2.0** from
+PowerShell Gallery and imports that exact version alongside PSRule **2.9.0**.
+Only dashboard source is checked out; the module repository is outside
+the assessment execution path. To adopt a later package release, update
+`-ModuleVersion` in `azure-pipelines/run-assessment.yml` after publishing it.
+Installation or import failures stop the assessment and fail the run.
 
 ### Pipeline run dashboard
 
-The manual assessment pipeline also generates `psrule-dashboard.html` and
-`psrule-summary.md` directly from the detailed assessment results. The dashboard
-contains totals, failure charts by rule and resource, and a findings table with
-project, outcome, and severity filters, text search, and chart drill-downs.
-It is a snapshot of one assessment run; historical trends remain in the Azure
-Monitor workbooks.
+The assessment pipeline generates a self-contained **Project Health & Compliance**
+report with three tabs: **Project Health**, **Compliance Readiness** and **Evolution**.
+Shared filters and drill-downs connect project/category findings; organization-wide
+controls stay separate from project scores. Readiness uses measured priorities when
+no effort estimates are configured. Evolution uses retained, compatible assessment
+snapshots and labels missing or incomplete evidence explicitly.
+
+See [Project Health](docs/project-health.md) for the views and calculation rules.
+The pipeline maps `System.AccessToken` for read-only history acquisition from its
+own definition and branch. Missing Build Read access or retained artifacts produces
+visible history limitations; it does not block current report generation.
 
 An organization administrator must install
 [BlakYaks HTML Reports](https://marketplace.visualstudio.com/items?itemName=blakyaks.azure-pipelines-html-reports)
@@ -35,108 +44,46 @@ page. The Markdown summary appears on the run's Extensions tab through
 The pipeline uses the `PSRuleReportReady` variable to publish the HTML tab only
 after a valid report has been generated.
 
-The `psrule-results` artifact retains the HTML, Markdown, and existing SARIF
-report even when subsequent workbook ingestion fails. Download the artifact
+The `psrule-results` artifact retains HTML, Markdown, SARIF, collection status,
+`assessment-snapshot.json` and `assessment-history.json` when generated. The separate `AzureDevOpsRawData` artifact retains the original JSON
+export with project subfolders, including partial exports after collection failure.
+Available exports are evaluated even when collection is incomplete. HTML and Markdown
+show affected projects, organization collectors, statuses, and reason codes; totals cover only
+the available evaluated data. Collection gaps finish as `SucceededWithIssues` (yellow). Download the artifact
 and open `psrule-dashboard.html` in a browser to use the dashboard offline;
 all styles, scripts, and report data are embedded in the file. Readers need
 permission to view the pipeline run and its artifacts, rather than additional
 Log Analytics access. Downloaded reports contain assessment findings, so share
 them with the same audience as the run. Reports follow the pipeline's run and
 artifact retention policy; retain the run or download its artifact to keep a
-snapshot longer. Check pipeline status separately for ingestion failures.
-An assessment with no results or rule execution errors produces no dashboard.
+snapshot longer. Authentication, rule execution, report generation, and artifact publication failures
+fail the run; rule violations are findings. With no usable inputs or results, a
+diagnostic dashboard reports zero evaluated checkpoints and the run finishes yellow.
+SARIF is retained only when evaluation produces results.
 
-From this repository, run the offline PowerShell tests with
-`Invoke-Pester ./tests -Output Detailed`. For browser checks, install Playwright
-in a temporary directory, install its Chromium browser, set `NODE_PATH` to that
-directory's `node_modules`, and run `node tests/PipelineReport.Browser.Tests.cjs`.
-Chromium also requires the host libraries listed by `playwright install-deps chromium`.
-The browser checks exercise the report in an iframe, matching the viewer's
-rendering method. A live run must also confirm the Reports page and Markdown
-summary in Azure DevOps.
+Run the offline checks from this repository:
+
+```powershell
+Invoke-Pester ./tests -Output Detailed
+npm ci
+npx playwright install chromium
+npm test
+npm run test:browser
+```
+
+Browser checks cover tabs, shared filters, historical comparisons, partial/empty
+collection diagnostics, sandboxed iframe rendering and JavaScript-disabled access.
+A live run must separately confirm artifact and HTML task publication in Azure DevOps.
 
 See [dashboard architecture](docs/architecture.md) for assessment flow, pipeline
-structure, ingestion contracts, and report publication.
+structure and report publication.
 
-### Prerequisites
+### Legacy Azure resources
 
-- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest) version 2.20.0 or later.
-- Local copy of this repository. Use `git clone` to download and maintain a local copy of this repo.
-
-### Deployment
-
-The following steps will guide you through deploying the log analytics workspace,
-workbooks and a keyvault to your Azure subscription. In your local copy of this
-repository, run the following command to create a new resource group:
-
-```powershell
-# Set the location to deploy to
-$location = 'westeurope'
-# Set the resource group name
-$resourceGroupName = 'rg-psrule-azuredevops-weu'
-# Create the resource group in the specified location
-az group create --name $resourceGroupName --location $location
-```
-
-Next, run the following command to deploy the log analytics workspace and workbooks:
-
-```powershell
-az deployment group create `
-    --resource-group $resourceGroupName `
-    --template-file .\src\bicep\main.bicep `
-    --query properties.outputs `
-    -p azDoOrganization='contoso' `
-    -p azDoPAT='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-```
-
-The deployment will take approximately 5 minutes to complete. After the deployment
-has completed, there will be a log analytics workspace with workbooks and a key vault
-available in the resource group. The key vault will contain the necessary secrets
-to run the analysis with PSRule from an Azure Pipeline.
-
-### Azure Pipelines
-
-The following steps will guide you through setting up a daily analysis of Azure DevOps projects
-with PSRule using Azure Pipelines.
-
-#### Create a repository in Azure DevOps
-
-Create a new repository in Azure DevOps to store the pipeline definition. To create a new
-repository, follow the steps in [Create a repo](https://docs.microsoft.com/en-us/azure/devops/repos/git/create-new-repo?view=azure-devops&tabs=browser).
-After creating the repository, clone it to your local machine and add the following files
-to the root of the repository:
-
-- `azure-pipelines/psrule-azdo-loganalytics.yaml`
-
-#### Add the Key Vault as a Variable Group in Azure DevOps
-
-Add the key vault as a variable group in Azure DevOps to allow the pipeline to access the
-secrets. The key vault can be found in the resource group specified in the deployment.
-To add the key vault as a variable group, follow the steps in [Create a variable group](https://docs.microsoft.com/en-us/azure/devops/pipelines/library/variable-groups?view=azure-devops&tabs=yaml#create-a-variable-group).
-When prompted to select a source, select `Azure Key Vault` and select the key vault created
-in the previous step. Name the variable group `azdo-psrule-run` and select `Allow access to all pipelines`.
-
-#### Create the pipeline
-
-Create a new pipeline in Azure DevOps to run the PSRule analysis. To create a new pipeline,
-follow the steps in [Create your first pipeline](https://docs.microsoft.com/en-us/azure/devops/pipelines/create-first-pipeline?view=azure-devops&tabs=java%2Cyaml%2Cbrowser%2Ctfs-2018-2).
-When prompted to select a template, select `Existing Azure Pipelines YAML file` and
-select the `azure-pipelines/psrule-azdo-loganalytics.yaml` file from the repository.
-
-#### Run the pipeline
-
-Run the pipeline to verify the setup. The pipeline will run for approximately 2 to 5 minutes depending on the size of the Azure DevOps project. Do not run the pipeline more
-than once a day as the workbook is designed to analyze a single day of data.
-
-**Note:** When running the pipeline for the first time, it will take up to 15 minutes
-for data to appear in the workbook.
-
-#### Check the workbook
-
-After the pipeline has completed, check the workbook in the log analytics workspace.
-The main workbook is named `Azure DevOps Main` and is available in the `Workbooks` section
-of the log analytics workspace. The workbook will show the results of the last run in 24
-hour intervals.
+The Bicep templates and standalone ingestion scripts remain available for existing
+installations. They are not used by `run-assessment`; consolidation does not delete
+previously deployed resources. The old daily and separate deployment definitions
+must be disabled during cutover to prevent continued Azure publication.
 
 ## References and acknowledgements
 

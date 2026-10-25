@@ -93,10 +93,10 @@ begin {
 
     Write-Host "##[endgroup]"
 
-    Write-Host "##[group]Import custom module [PSRule.Rules.AzureDevOps]"
+    Write-Host "##[group]Import custom module [DevOpsTools.AzureDevOps.PSRule]"
 
     try {
-        Import-Module -Name PSRule.Rules.AzureDevOps -ErrorAction Stop
+        Import-Module -Name DevOpsTools.AzureDevOps.PSRule -ErrorAction Stop
     }
     catch {
         throw $_
@@ -146,7 +146,7 @@ process {
         OutputPath     = $ReportOutputPath
     }
 
-    Export-AzDevOpsOrganizationRuleData @exportOrgRuleParams
+    Export-AzDevOpsOrganizationRuleData -CompletenessReportPath (Join-Path (Split-Path $ReportOutputPath) 'collection-status.json') @exportOrgRuleParams
 
     Write-Host "##[endgroup]"
 }
