@@ -1,9 +1,28 @@
-# PSRule Power BI
+# PSRule assessment — Power BI
 
-Initial Power BI Project for Azure DevOps PSRule assessment results.
+Open `PSRule.pbip` in Power BI Desktop.
 
-Open `PSRule.pbip` with Power BI Desktop. The initial report contains three empty pages: Overview, Evolution, and Remediation Priorities. This is **not** a finished visual report and has **not** been verified in Power BI Desktop here.
+## Configure Azure DevOps REST API with a PAT
 
-The semantic model is defined in `PSRule.SemanticModel/model.bim`, where the queries use Azure DevOps REST API to retrieve `psrule-results` build artifacts and parse SARIF reports. Configure organization, project, and definition ID in the Config expression. Authenticate `https://dev.azure.com` using Basic with a short-lived PAT as password, stored only in the Power BI credential store; do not commit secrets.
+The source uses Power Query `Web.Contents("https://dev.azure.com", ...)`. **The PAT is not embedded in the project.** Power BI's Web data source credential manager sends it over HTTPS using HTTP Basic.
 
-Known limitations: the current SARIF result set may not include passing checks, so compliance percentages must not be derived from it. The initial query only loads successful builds and assumes a File Container artifact path. Validate against a real run, and include builds with rule assertion failures if those runs still publish artifacts. Custom Entra ID connector is planned for later.
+1. Create a **short-lived PAT** in Azure DevOps with **Build (Read)** permission for the relevant organization. Do not paste it into this repository or any chat.
+2. Open **Home > Transform data** and locate `Config` (Advanced Editor). Set `Organization`, `Project`, `PipelineDefinitionId`. Keep `ArtifactName = "psrule-results"` and `SarifFileName = "psrule-results.sarif"`. Start with `MaxBuilds = 1`.
+3. Select **Data source settings > https://dev.azure.com > Edit Permissions > Edit Credentials**. If a previous Organizational Account sign-in failed, use **Clear Permissions**, then retry.
+4. Select **Basic**, enter `azdo` as the username and your PAT as the password. Choose the root URL `https://dev.azure.com` for the credential scope, and **Save**.
+5. Select the `Builds` query and **Refresh Preview**. Once it returns a build, select `AssessmentResults`. Then **Close & Apply**.
+
+The token is local to the credentials store; the project can be committed without including it. Different users will need to authenticate separately.
+
+## Troubleshooting
+
+- **401 / 403:** confirm the PAT's organization, expiry and Build (Read) scope, plus permission to view the relevant pipeline.
+- **No builds:** confirm the pipeline definition ID. Currently the query includes only successfully completed builds; PSRule runs that fail because of findings can still contain valid artifacts and are excluded.
+- **404 reading SARIF:** the query currently assumes a File Container artifact at `psrule-results/psrule-results.sarif`; validate the item path using an actual build.
+- **Schema / model error:** this is a preliminary PBIP project generated without a Power BI Desktop runtime to validate. The three pages are placeholders, not complete dashboards.
+
+## Data limitations
+
+SARIF can omit successful assessments, so do not calculate a compliance rate based solely on returned findings. Validate the results before using them for prioritization.
+
+The Entra ID custom connector is a future replacement for PAT authentication.
