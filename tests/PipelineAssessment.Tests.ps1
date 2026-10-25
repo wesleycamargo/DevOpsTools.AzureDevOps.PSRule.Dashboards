@@ -1,7 +1,7 @@
 BeforeAll {
     $assessmentPath = (Resolve-Path "$PSScriptRoot/../src/scripts/Invoke-PSRuleAssessment.ps1").Path
     function Invoke-TestAssessment {
-        param([string]$Scenario, [string]$OutputDirectory, [string]$ModuleVersion = '0.2.0')
+        param([string]$Scenario, [string]$OutputDirectory, [string]$ModuleVersion = '0.2.1')
         # Isolate collector/PSRule/Azure adapters while running the real orchestration and report writer.
         $runner = [powershell]::Create()
         $harness = {
@@ -20,7 +20,7 @@ BeforeAll {
                 $env:BUILD_ARTIFACTSTAGINGDIRECTORY = $OutputDirectory
                 New-Item $OutputDirectory -ItemType Directory -Force | Out-Null
                 $moduleDirectory = New-Item (Join-Path $OutputDirectory 'module') -ItemType Directory -Force
-                '@{ ModuleVersion = "0.2.0" }' | Set-Content (Join-Path $moduleDirectory.FullName 'DevOpsTools.AzureDevOps.PSRule.psd1')
+                '@{ ModuleVersion = "0.2.1" }' | Set-Content (Join-Path $moduleDirectory.FullName 'DevOpsTools.AzureDevOps.PSRule.psd1')
                 function Get-Module { [pscustomobject]@{ Version = [version]'2.9.0'; ModuleBase = $moduleDirectory.FullName } }
                 $moduleCalls = [System.Collections.Generic.List[object]]::new()
                 function Install-Module {
@@ -117,12 +117,12 @@ Describe 'Assessment report integration' {
         $installation = @($assessment.ModuleCalls | Where-Object Operation -EQ 'Install')
         $installation.Count | Should -Be 1
         $installation[0].Name | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
-        $installation[0].RequiredVersion | Should -Be '0.2.0'
+        $installation[0].RequiredVersion | Should -Be '0.2.1'
         $installation[0].Repository | Should -Be 'PSGallery'
         $installation[0].Scope | Should -Be 'CurrentUser'
         $installation[0].AllowClobber | Should -BeTrue
         @($assessment.ModuleCalls | Where-Object Operation -EQ 'Import').Name | Should -Be @('PSRule', 'DevOpsTools.AzureDevOps.PSRule')
-        ($assessment.ModuleCalls | Where-Object { $_.Operation -eq 'Import' -and $_.Name -eq 'DevOpsTools.AzureDevOps.PSRule' }).RequiredVersion | Should -Be '0.2.0'
+        ($assessment.ModuleCalls | Where-Object { $_.Operation -eq 'Import' -and $_.Name -eq 'DevOpsTools.AzureDevOps.PSRule' }).RequiredVersion | Should -Be '0.2.1'
         foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json', 'assessment-snapshot.json', 'assessment-history.json')) {
             Test-Path "$output/reports/$file" | Should -BeTrue
         }
@@ -139,13 +139,13 @@ Describe 'Assessment report integration' {
         $assessment.Error | Should -BeNullOrEmpty
         $snapshot = Get-Content "$output/reports/assessment-snapshot.json" -Raw | ConvertFrom-Json
         $snapshot.module.name | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
-        $snapshot.module.version | Should -Be '0.2.0'
+        $snapshot.module.version | Should -Be '0.2.1'
         $snapshot.configuration.ruleset | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
         $snapshot.configuration.rulesetHash | Should -Match '^[a-f0-9]{64}$'
         $snapshot.evaluation.Status | Should -Be 'Completed'
         $html = Get-Content "$output/reports/psrule-dashboard.html" -Raw
         $html | Should -Match 'Project Health &amp; Compliance'
-        $html | Should -Match 'DevOpsTools.AzureDevOps.PSRule 0.2.0'
+        $html | Should -Match 'DevOpsTools.AzureDevOps.PSRule 0.2.1'
         $html | Should -Match 'Historical authentication unavailable'
     }
 

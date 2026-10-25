@@ -29,7 +29,7 @@ steps:
       scriptLocation: scriptPath
       scriptPath: $(Pipeline.Workspace)/s/dashboards/src/scripts/Invoke-PSRuleAssessment.ps1
       arguments: >-
-        -ModuleVersion "0.2.0"
+        -ModuleVersion "0.2.1"
       visibleAzLogin: false
       useGlobalConfig: false
   - task: PublishBuildArtifacts@1
