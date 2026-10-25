@@ -22,7 +22,7 @@ resources:
       ref: refs/heads/main
 
 pool:
-  name: Azure Pipelines
+  name: AI-Pool
 
 steps:
   - checkout: self
