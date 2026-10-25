@@ -3,7 +3,7 @@
 ## Overview
 
 `run-assessment` collects Azure DevOps data and presents PSRule findings directly
-in the pipeline. It runs daily at 06:00 UTC on `main`, or manually, using `AI-Pool`.
+in the pipeline. It runs daily at 06:00 UTC on `main`, or manually, using the Microsoft-hosted `Azure Pipelines` pool (`ubuntu-latest`).
 It does not deploy Azure workbooks or publish to Log Analytics.
 
 ## Getting started

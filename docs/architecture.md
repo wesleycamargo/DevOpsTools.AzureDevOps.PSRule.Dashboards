@@ -4,29 +4,49 @@
 
 `azure-pipelines/run-assessment.yml` is the dashboard repository's only pipeline
 entry point. It runs manually or daily at 06:00 UTC on `main`, with push and PR
-triggers disabled. `AI-Pool` executes the job; `psrule-azure` supplies the Azure
+triggers disabled. The Microsoft-hosted `Azure Pipelines` pool (`ubuntu-latest`) executes the job; `psrule-azure` supplies the Azure
 DevOps token. Only dashboard source is checked out. The assessment task installs
 `DevOpsTools.AzureDevOps.PSRule` 0.2.1 from PowerShell Gallery and imports that
 exact version, with PSRule 2.9.0. The module repository is not accessed.
 
-```text
-Schedule / manual -> Check out dashboards -> Install Gallery modules
-                                                       |
-                                                       v
-                                                Export organization
-                                                       |          |
-                                                       |          +-> Raw artifact
-                                                       v
-                                                Collection diagnostics
-                                                       |
-                                                       v
-                                                Evaluate rules
-                                                       |
-                                                       v
-                                             HTML + Markdown + SARIF
-                                                       |
-                                                       v
-                                  Project Health + Readiness + Evolution
+```mermaid
+flowchart TB
+    trigger["Manual run / daily 06:00 UTC"]
+    gallery[("PowerShell Gallery<br/>Pinned module + PSRule 2.9.0")]
+    ado[("Azure DevOps<br/>Organization and projects")]
+    prior[("Retained psrule-results<br/>Same pipeline and branch")]
+
+    subgraph job["Azure Pipelines · fresh ubuntu-latest VM"]
+        checkout["Check out dashboard source"]
+        install["Install pinned packages"]
+        collect["Collect configuration<br/>psrule-azure service connection"]
+        evaluate["Evaluate available JSON<br/>PSRule · Baseline.Default"]
+        history["Read compatible history<br/>System.AccessToken"]
+        report["Generate report and snapshot<br/>Coverage + current results + history"]
+        checkout --> install --> collect
+        collect -->|"Available targets"| evaluate
+        evaluate -->|"Detailed results"| report
+        collect -->|"Coverage / no usable targets"| report
+        history -->|"Snapshots or visible limitations"| report
+    end
+    trigger --> checkout
+    gallery --> install
+    ado --> collect
+    prior --> history
+
+    raw[("AzureDevOpsRawData<br/>Original project JSON · partial exports")]
+    evidence[("psrule-results<br/>HTML · Markdown · SARIF when evaluated<br/>Completeness · snapshot · history")]
+    viewer["Pipeline Reports<br/>Project Health · Readiness · Evolution"]
+    collect --> raw
+    report --> evidence
+    report -->|"Report ready"| viewer
+
+    classDef input fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef step fill:#eff6ff,stroke:#2563eb,color:#172554
+    classDef output fill:#ecfdf5,stroke:#059669,color:#064e3b
+    class trigger,gallery,ado,prior input
+    class checkout,install,collect,evaluate,history,report step
+    class raw,evidence,viewer output
 ```
 
 `Invoke-PSRuleAssessment.ps1` collects organization data, evaluates PSRule 2.9.0
@@ -36,6 +56,8 @@ resource deployment, Monitor ingestion, or Log Analytics query is part of the ru
 The package version is pinned by `-ModuleVersion` in the YAML. Update the pin after
 publishing a new module version. Installation and import failures remain red.
 
+Each job receives a fresh Microsoft-hosted VM; no devcontainer listener is
+required. Hosted capacity and pipeline authorization are managed in Azure DevOps.
 The script resets its dedicated `raw-export` and `reports` staging directories
 before each attempt, so reused agents cannot contribute stale results. Collection
 status is outside the resource input directory. Available exports are evaluated
