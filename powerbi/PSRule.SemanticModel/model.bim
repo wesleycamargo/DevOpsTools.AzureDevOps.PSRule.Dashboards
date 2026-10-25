@@ -1,0 +1,141 @@
+{
+  "name": "PSRule",
+  "compatibilityLevel": 1600,
+  "model": {
+    "culture": "en-US",
+    "defaultPowerBIDataSourceVersion": "powerBI_V3",
+    "tables": [
+      {
+        "name": "Config",
+        "isHidden": true,
+        "columns": [],
+        "partitions": [
+          {
+            "name": "Config",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Config = [Organization=\"YOUR_ORGANIZATION\", Project=\"YOUR_AZDO_PROJECT\", PipelineDefinitionId=0, ArtifactName=\"psrule-results\", SarifFileName=\"psrule-results.sarif\", MaxBuilds=1]\nin\n    Config"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Builds",
+        "isHidden": false,
+        "columns": [
+          {
+            "name": "id",
+            "dataType": "int64",
+            "sourceColumn": "id"
+          },
+          {
+            "name": "buildNumber",
+            "dataType": "string",
+            "sourceColumn": "buildNumber"
+          },
+          {
+            "name": "finishTime",
+            "dataType": "string",
+            "sourceColumn": "finishTime"
+          },
+          {
+            "name": "result",
+            "dataType": "string",
+            "sourceColumn": "result"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "Builds",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": "let\n  C=Config,\n  Valid=if C[PipelineDefinitionId]=0 then error \"Configure PipelineDefinitionId in Config\" else true,\n  R=if Valid then fxAzDoGet(C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds\", [definitions=Text.From(C[PipelineDefinitionId]), statusFilter=\"completed\", resultFilter=\"succeeded\", queryOrder=\"finishTimeDescending\", #\"$top\"=Text.From(C[MaxBuilds])]) else null,\n  L=R[value],\n  T=Table.FromRecords(L, null, MissingField.UseNull),\n  Output=Table.SelectColumns(T,{\"id\",\"buildNumber\",\"finishTime\",\"result\"}, MissingField.UseNull)\nin Output"
+            }
+          }
+        ]
+      },
+      {
+        "name": "AssessmentResults",
+        "isHidden": false,
+        "columns": [
+          {
+            "name": "BuildId",
+            "dataType": "int64",
+            "sourceColumn": "BuildId"
+          },
+          {
+            "name": "BuildNumber",
+            "dataType": "string",
+            "sourceColumn": "BuildNumber"
+          },
+          {
+            "name": "RuleId",
+            "dataType": "string",
+            "sourceColumn": "RuleId"
+          },
+          {
+            "name": "Level",
+            "dataType": "string",
+            "sourceColumn": "Level"
+          },
+          {
+            "name": "Kind",
+            "dataType": "string",
+            "sourceColumn": "Kind"
+          },
+          {
+            "name": "Message",
+            "dataType": "string",
+            "sourceColumn": "Message"
+          },
+          {
+            "name": "TargetUri",
+            "dataType": "string",
+            "sourceColumn": "TargetUri"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "AssessmentResults",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": "let\n  Bs=Table.ToRecords(Builds),\n  Rows=List.Combine(List.Transform(Bs,(b)=>\n    let\n      Sarif=fxArtifactSarif(b[id]),\n      Runs=Record.FieldOrDefault(Sarif,\"runs\",{}),\n      Found=List.Combine(List.Transform(Runs,(run)=>List.Transform(Record.FieldOrDefault(run,\"results\",{}),(r)=>\n        let\n          Msg=Record.FieldOrDefault(r,\"message\",[]),\n          Locs=Record.FieldOrDefault(r,\"locations\",{}),\n          Loc=if List.Count(Locs)>0 then Locs{0} else [],\n          Ph=Record.FieldOrDefault(Loc,\"physicalLocation\",[]),\n          Ar=Record.FieldOrDefault(Ph,\"artifactLocation\",[])\n        in [BuildId=b[id],BuildNumber=b[buildNumber],RuleId=Record.FieldOrDefault(r,\"ruleId\",null),Level=Record.FieldOrDefault(r,\"level\",null),Kind=Record.FieldOrDefault(r,\"kind\",null),Message=Record.FieldOrDefault(Msg,\"text\",null),TargetUri=Record.FieldOrDefault(Ar,\"uri\",null)]\n      )))\n    in Found\n  )),\n  Output=if List.Count(Rows)=0 then #table({\"BuildId\",\"BuildNumber\",\"RuleId\",\"Level\",\"Kind\",\"Message\",\"TargetUri\"},{}) else Table.FromRecords(Rows)\nin Output"
+            }
+          }
+        ],
+        "measures": [
+          {
+            "name": "Reported Findings",
+            "expression": "COUNTROWS(AssessmentResults)",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Affected Rules",
+            "expression": "DISTINCTCOUNT(AssessmentResults[RuleId])",
+            "formatString": "#,0"
+          },
+          {
+            "name": "Error Findings",
+            "expression": "CALCULATE([Reported Findings], AssessmentResults[Level] = \"error\")",
+            "formatString": "#,0"
+          }
+        ]
+      }
+    ],
+    "expressions": [
+      {
+        "name": "fxAzDoGet",
+        "kind": "m",
+        "expression": "(path as text, q as record) as any => Json.Document(Web.Contents(\"https://dev.azure.com\", [RelativePath=path, Query=Record.Combine({[#\"api-version\"=\"7.1\"],q}), Headers=[Accept=\"application/json\"]]))"
+      },
+      {
+        "name": "fxArtifactSarif",
+        "kind": "m",
+        "expression": "(buildId as number) as record =>\nlet\n C=Config,\n Path=C[Organization]&\"/\"&Uri.EscapeDataString(C[Project])&\"/_apis/build/builds/\"&Text.From(buildId)&\"/artifacts\",\n Info=fxAzDoGet(Path,[artifactName=C[ArtifactName]]),\n Res=Info[resource],\n Type=Text.Lower(Text.From(Res[type])),\n Check=if Type<>\"container\" then error \"Expected a Build Artifact file container\" else true,\n Parts=Text.Split(Text.From(Res[data]),\"/\"),\n ContainerId=Parts{1},\n Raw=if Check then Web.Contents(\"https://dev.azure.com\",[RelativePath=C[Organization]&\"/_apis/resources/Containers/\"&ContainerId,Query=[itemPath=C[ArtifactName]&\"/\"&C[SarifFileName],#\"api-version\"=\"7.1\"],Headers=[Accept=\"application/octet-stream\"]]) else error \"Invalid artifact\",\n S=Json.Document(Raw)\nin S"
+      }
+    ]
+  }
+}
