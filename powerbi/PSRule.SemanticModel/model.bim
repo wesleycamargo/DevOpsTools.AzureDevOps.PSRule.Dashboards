@@ -149,7 +149,7 @@
             "mode": "import",
             "source": {
               "type": "m",
-              "expression": "let\n  Runs=Table.ToRecords(Builds),\n  Tables=List.Transform(Runs, each try fxRawJsonFiles(_[id]) otherwise #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{})),\n  Combined=if List.Count(Tables)=0 then #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{}) else Table.Combine(Tables),\n  Output=Table.SelectColumns(Combined,{\"BuildId\",\"FilePath\",\"RawJson\"},MissingField.UseNull)\nin Output"
+              "expression": "let\n  Runs=Table.ToRecords(Builds),\n  Tables=List.Transform(Runs, each fxRawJsonFiles(_[id])),\n  Combined=if List.Count(Tables)=0 then #table({\"BuildId\",\"FilePath\",\"RawJson\",\"Data\"},{}) else Table.Combine(Tables),\n  Output=Table.SelectColumns(Combined,{\"BuildId\",\"FilePath\",\"RawJson\"},MissingField.UseNull)\nin Output"
             }
           }
         ]
