@@ -7,39 +7,29 @@ param (
     [string]$Organization,
     [Parameter(Mandatory)]
     [string]$RunId,
-    [object]$CollectionStatus,
     [datetime]$Timestamp = [datetime]::UtcNow,
     [Parameter(Mandatory)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [Alias('CollectionStatus')]$Collection,
+    $Configuration,
+    $Evaluation,
+    [string]$ModuleVersion = 'Unknown',
+    [string]$ModuleName = 'PSRule.Rules.AzureDevOps',
+    [string]$RuleHelpPath,
+    [string]$HistoryPath,
+    [string]$EffortConfigPath = "$PSScriptRoot/../../config/effort.json",
+    [ValidateRange(1,1000)][int]$SharedOpportunityMinimum = 3,
+    [ValidateRange(0,100)][double]$QuickWinThreshold = 70
 )
 $ErrorActionPreference = 'Stop'
-function Get-ReportText {
-    param($Value)
-    if ([string]::IsNullOrWhiteSpace([string]$Value)) { return 'Unknown' }
-    return [string]$Value
-}
 function ConvertTo-SummaryText {
     param([string]$Value)
     $text = [Net.WebUtility]::HtmlEncode(($Value -replace '[\r\n]+', ' '))
     return $text -replace '[\\`*_{}\[\]()|]', '\$0'
 }
-$records = @($Results | ForEach-Object {
-    $id = $_.TargetObject.id
-    if ($id -isnot [pscustomobject] -and $id -isnot [Collections.IDictionary]) { $id = $_.Field.id }
-    if ($id -is [string]) {
-        try { $id = $id | ConvertFrom-Json -ErrorAction Stop } catch { $id = $null }
-    }
-    [pscustomobject][ordered]@{
-        ruleName = Get-ReportText $_.RuleName
-        displayName = Get-ReportText $_.Info.DisplayName
-        targetName = Get-ReportText $_.TargetName
-        targetType = Get-ReportText $_.TargetType
-        outcome = Get-ReportText $_.Outcome
-        severity = Get-ReportText $_.Info.Annotations.severity
-        project = Get-ReportText $id.project
-        resourceName = Get-ReportText $id.resourceName
-    }
-})
+. "$PSScriptRoot/AssessmentModel.ps1"
+. "$PSScriptRoot/ProjectHealthReport.ps1"
+$CollectionStatus = $Collection
 $collectionIssues = @(
     if ($CollectionStatus.ProjectDiscovery -and $CollectionStatus.ProjectDiscovery.Status -notin @('Completed', 'Empty')) {
         [pscustomobject]@{ project = '(organization)'; collector = $CollectionStatus.ProjectDiscovery.Command; status = $CollectionStatus.ProjectDiscovery.Status; reasonCodes = @($CollectionStatus.ProjectDiscovery.ReasonCodes) }
@@ -61,19 +51,62 @@ $collectionIssues = @(
     }
 )
 $collectionIncomplete = ($CollectionStatus -and $CollectionStatus.Status -ne 'Complete') -or $collectionIssues.Count -gt 0
+$report = New-AssessmentSnapshot -Results $Results -Organization $Organization -RunId $RunId -Timestamp $Timestamp -Collection $Collection -Configuration $Configuration -Evaluation $Evaluation -ModuleVersion $ModuleVersion -ModuleName $ModuleName -RuleHelpPath $RuleHelpPath
+$report.collectionIncomplete = [bool]$collectionIncomplete
+$report.collectionIssues = $collectionIssues
+$records = $report.results
 $counts = [ordered]@{
     'Total checkpoints' = $records.Count
     'Passed checkpoints' = @($records | Where-Object outcome -eq 'Pass').Count
     'Failed checkpoints' = @($records | Where-Object outcome -eq 'Fail').Count
-    'Rules checked' = @($records.ruleName | Sort-Object -Unique).Count
-    'Resources checked' = @($records | Select-Object project, targetType, targetName -Unique).Count
+    'Ignored checkpoints' = $report.statistics.ignored
+    'Error checkpoints' = $report.statistics.errors
+    'Applicable checkpoints' = $report.statistics.applicable
+    'Compliance (%)' = $(if ($null -eq $report.statistics.compliance) { 'Unavailable' } else { $report.statistics.compliance })
+    'Rules checked' = $report.statistics.rules
+    'Resources checked' = $report.statistics.resources
 }
 $timestampText = $Timestamp.ToUniversalTime().ToString('o')
-$report = [ordered]@{ organization = $Organization; runId = $RunId; timestamp = $timestampText; collectionIncomplete = [bool]$collectionIncomplete; collectionIssues = $collectionIssues; results = $records }
+$history = @{ schemaVersion = '1.0'; snapshots = @(); limitations = @('History is limited by pipeline artifact retention.') }
+if ($HistoryPath -and (Test-Path -LiteralPath $HistoryPath)) {
+    try {
+        $candidate = Get-Content -LiteralPath $HistoryPath -Raw | ConvertFrom-Json -AsHashtable
+        if ($candidate.schemaVersion -ne '1.0' -or -not $candidate.ContainsKey('snapshots')) { throw 'Unsupported history envelope.' }
+        $history.limitations += @($candidate.limitations)
+        $seenRuns = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($snapshot in $candidate.snapshots) {
+            try {
+                Assert-AssessmentSnapshot -Snapshot $snapshot -Organization $Organization
+                if ($seenRuns.Add([string]$snapshot.runId)) { $history.snapshots += $snapshot }
+            } catch { $history.limitations += "Historical snapshot excluded: $($_.Exception.Message)" }
+        }
+    } catch { $history.limitations += 'Historical dataset is unreadable or unsupported; current-run evidence is retained.' }
+}
+$display = Get-ProjectHealthDisplayData -Snapshot $report -History $history -EffortConfigPath $EffortConfigPath -SharedOpportunityMinimum $SharedOpportunityMinimum -QuickWinThreshold $QuickWinThreshold
+$static = Get-ProjectHealthStaticHtml -Snapshot $report -Display $display
+$diagnostics = @(
+    if ($collectionIncomplete) {
+        '<section class="ph-panel" id="ph-collection-diagnostics"><h2>Incomplete collection</h2><p>Missing collection data is not evidence of passing controls. Totals cover only the available evaluated data.</p><div class="ph-scroll"><table><thead><tr><th>Project</th><th>Collector</th><th>Status</th><th>Reason codes</th></tr></thead><tbody>'
+        foreach ($issue in $collectionIssues) {
+            "<tr><td>$(ConvertTo-ProjectHealthHtml $issue.project)</td><td>$(ConvertTo-ProjectHealthHtml $issue.collector)</td><td>$(ConvertTo-ProjectHealthHtml $issue.status)</td><td>$(ConvertTo-ProjectHealthHtml ($issue.reasonCodes -join ', '))</td></tr>"
+        }
+        '</tbody></table></div></section>'
+    }
+    if ($records.Count -eq 0) {
+        '<section class="ph-panel" id="ph-no-results"><h2>No assessment results available</h2><p>Zero evaluated checkpoints. No compliance conclusion is available.</p></section>'
+    }
+) -join "`n"
 # Escape HTML-sensitive characters so result text cannot terminate the JSON script element.
-$json = ConvertTo-Json -InputObject $report -Depth 8 -Compress -EscapeHandling EscapeHtml
+$json = ConvertTo-Json -InputObject $display -Depth 30 -Compress -EscapeHandling EscapeHtml
 $template = Get-Content "$PSScriptRoot/../templates/psrule-dashboard.html" -Raw
-$html = $template.Replace('__REPORT_DATA__', $json)
+# Replace template tokens once; tokens inside assessment text remain literal.
+$parts = @{
+    '__DASHBOARD_CSS__' = Get-Content "$PSScriptRoot/../templates/assessment.css" -Raw
+    '__DASHBOARD_JS__' = Get-Content "$PSScriptRoot/../templates/assessment.js" -Raw
+    '__COLLECTION_DIAGNOSTICS__' = $diagnostics
+    '__STATIC_HEADER__' = $static.Header; '__STATIC_HEALTH__' = $static.Health; '__REPORT_DATA__' = $json
+}
+$html = [regex]::Replace($template, '__(?:DASHBOARD_CSS|DASHBOARD_JS|STATIC_HEADER|STATIC_HEALTH|COLLECTION_DIAGNOSTICS|REPORT_DATA)__', [Text.RegularExpressions.MatchEvaluator]{ param($match) [string]$parts[$match.Value] })
 $summary = @(
     '# PSRule Dashboard'
     ''
@@ -123,3 +156,6 @@ $summary = @(
 New-Item $OutputDirectory -ItemType Directory -Force | Out-Null
 Set-Content (Join-Path $OutputDirectory 'psrule-dashboard.html') -Value $html -Encoding utf8
 Set-Content (Join-Path $OutputDirectory 'psrule-summary.md') -Value $summary -Encoding utf8
+
+# The persisted snapshot excludes the aggregated history to avoid recursive growth.
+$report | ConvertTo-Json -Depth 30 -EscapeHandling EscapeHtml | Set-Content (Join-Path $OutputDirectory 'assessment-snapshot.json') -Encoding utf8

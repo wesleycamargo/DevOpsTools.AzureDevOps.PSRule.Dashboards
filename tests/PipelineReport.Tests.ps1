@@ -19,7 +19,7 @@ Describe 'Pipeline assessment report' {
         & $scriptPath -Results $results -Organization organization -RunId organization/42 -Timestamp ([datetime]'2026-10-09T12:00:00Z') -OutputDirectory $TestDrive
         $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
         $summary = Get-Content "$TestDrive/psrule-summary.md" -Raw
-        $html | Should -Match 'PSRule Dashboard'
+        $html | Should -Match 'Project Health &amp; Compliance'
         $html | Should -Match 'organization/42'
         $summary | Should -Match '\| Total checkpoints \| 3 \|'
         $summary | Should -Match '\| Passed checkpoints \| 1 \|'
@@ -49,6 +49,7 @@ Describe 'Pipeline assessment report' {
     It 'reads serialized resource IDs and displays absent or invalid metadata as Unknown' {
         $known = New-ReportResult
         $missing = New-ReportResult
+        $missing.RuleName = 'Metadata.NotAvailable'
         $missing.Field.id = 'not-json'
         $missing.Info = $null
         & $scriptPath -Results @($known, $missing) -Organization organization -RunId organization/42 -OutputDirectory $TestDrive
@@ -56,8 +57,8 @@ Describe 'Pipeline assessment report' {
         $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
         $data.results[0].project | Should -Be 'prøject'
         $data.results[1].project | Should -Be 'Unknown'
-        $data.results[1].severity | Should -Be 'Unknown'
-        $data.results[1].displayName | Should -Be 'Unknown'
+        $data.rules.($data.results[1].ruleName).severity | Should -Be 'Unknown'
+        $data.rules.($data.results[1].ruleName).displayName | Should -Be 'Unknown'
     }
 
     It 'keeps HTML and script-like text as data without losing Unicode' {
@@ -178,5 +179,41 @@ Describe 'Pipeline assessment report' {
         $summary | Should -Not -Match '<script>'
         $summary | Should -Match ([regex]::Escape('&lt;script&gt;\|billing'))
         $summary | Should -Match ([regex]::Escape('&lt;script&gt;\|denied'))
+    }
+}
+
+Describe 'Report contract and history resilience' {
+    It 'validates the emitted snapshot against the documented JSON schema' {
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive
+        Get-Content "$TestDrive/assessment-snapshot.json" -Raw | Test-Json -SchemaFile "$PSScriptRoot/../docs/assessment-snapshot.schema.json" | Should -BeTrue
+    }
+    It 'keeps current evidence when an imported historical dataset is corrupt' {
+        'invalid json' | Set-Content "$TestDrive/corrupt.json"
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive -HistoryPath "$TestDrive/corrupt.json"
+        Get-Content "$TestDrive/psrule-dashboard.html" -Raw | Should -Match 'Historical dataset is unreadable'
+        Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
+    }
+}
+
+Describe 'Historical dataset evidence validation' {
+    It 'excludes a structurally invalid historical snapshot without breaking the current dashboard' {
+        @{schemaVersion='1.0';snapshots=@(@{schemaVersion='1.0';runId='org/bad';results=@(@{outcome='Fail'})});limitations=@()} | ConvertTo-Json -Depth 10 | Set-Content "$TestDrive/invalid-history.json"
+        & $scriptPath -Results @((New-ReportResult)) -Organization org -RunId org/1 -OutputDirectory $TestDrive -HistoryPath "$TestDrive/invalid-history.json"
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.history.snapshots.Count | Should -Be 0
+        $data.history.limitations -join ' ' | Should -Match 'comparison metadata is missing'
+        Test-Path "$TestDrive/assessment-snapshot.json" | Should -BeTrue
+    }
+}
+
+Describe 'Template-looking finding text' {
+    It 'preserves template placeholders inside assessment data as literal strings' {
+        $literal = '__DASHBOARD_JS__ __DASHBOARD_CSS__ __REPORT_DATA__'
+        $result = New-ReportResult Fail $literal
+        & $scriptPath -Results @($result) -Organization org -RunId org/1 -OutputDirectory $TestDrive
+        $html = Get-Content "$TestDrive/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.results[0].ruleName | Should -Be $literal
     }
 }

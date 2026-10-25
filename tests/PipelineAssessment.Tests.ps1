@@ -7,15 +7,21 @@ BeforeAll {
         $harness = {
             param($AssessmentPath, $Scenario, $OutputDirectory, $ModuleVersion)
             $previousEnvironment = @{}
-            foreach ($name in @('PIPELINE_WORKSPACE', 'BUILD_BUILDID', 'BUILD_ARTIFACTSTAGINGDIRECTORY')) {
+            foreach ($name in @('PIPELINE_WORKSPACE', 'BUILD_BUILDID', 'BUILD_ARTIFACTSTAGINGDIRECTORY', 'SYSTEM_TEAMPROJECT', 'SYSTEM_DEFINITIONID', 'BUILD_SOURCEBRANCH', 'SYSTEM_ACCESSTOKEN')) {
                 $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
             }
             try {
                 $env:PIPELINE_WORKSPACE = $OutputDirectory
-                $env:BUILD_BUILDID = '42'
+                $env:BUILD_BUILDID = $(if ($Scenario -eq 'History') { '43' } else { '42' })
+                $env:SYSTEM_TEAMPROJECT = 'fixture-project'
+                $env:SYSTEM_DEFINITIONID = '19'
+                $env:BUILD_SOURCEBRANCH = 'refs/heads/fixture'
+                $env:SYSTEM_ACCESSTOKEN = $(if ($Scenario -eq 'History') { 'fixture-history-token' } else { '' })
                 $env:BUILD_ARTIFACTSTAGINGDIRECTORY = $OutputDirectory
                 New-Item $OutputDirectory -ItemType Directory -Force | Out-Null
-                function Get-Module { [pscustomobject]@{ Version = [version]'2.9.0' } }
+                $moduleDirectory = New-Item (Join-Path $OutputDirectory 'module') -ItemType Directory -Force
+                '@{ ModuleVersion = "0.1.0" }' | Set-Content (Join-Path $moduleDirectory.FullName 'DevOpsTools.AzureDevOps.Assessment.psd1')
+                function Get-Module { [pscustomobject]@{ Version = [version]'2.9.0'; ModuleBase = $moduleDirectory.FullName } }
                 $moduleCalls = [System.Collections.Generic.List[object]]::new()
                 function Install-Module {
                     param($Name, $RequiredVersion, $Repository, $Scope, [switch]$Force, [switch]$AllowClobber)
@@ -76,8 +82,17 @@ BeforeAll {
                     }
                     return 'test-token'
                 }
-                function Invoke-WebRequest { throw 'Unexpected external publication.' }
-                function Invoke-RestMethod { throw 'Unexpected Log Analytics request.' }
+                function Invoke-WebRequest {
+                    param($Uri, $OutFile)
+                    if ($Scenario -ne 'History') { throw 'Unexpected external publication.' }
+                    if ($OutFile) { Copy-Item (Join-Path $OutputDirectory 'history-fixture.zip') $OutFile; return }
+                    if ($Uri -notmatch 'definitions=19&branchName=refs%2Fheads%2Ffixture') { throw 'Unexpected history scope.' }
+                    @{ Content = '{"value":[{"id":42,"definition":{"id":19},"sourceBranch":"refs/heads/fixture"}]}'; Headers = @{} }
+                }
+                function Invoke-RestMethod {
+                    if ($Scenario -ne 'History') { throw 'Unexpected Log Analytics request.' }
+                    @{ resource = @{ downloadUrl = 'https://dev.azure.com/test-org/fixture-project/_apis/build/builds/42/artifacts?format=zip' } }
+                }
                 try {
                     & $AssessmentPath -ModuleVersion $ModuleVersion -Organization test-org
                     [pscustomobject]@{ Error = $null; ModuleCalls = $moduleCalls.ToArray() }
@@ -108,7 +123,7 @@ Describe 'Assessment report integration' {
         $installation[0].AllowClobber | Should -BeTrue
         @($assessment.ModuleCalls | Where-Object Operation -EQ 'Import').Name | Should -Be @('PSRule', 'DevOpsTools.AzureDevOps.Assessment')
         ($assessment.ModuleCalls | Where-Object { $_.Operation -eq 'Import' -and $_.Name -eq 'DevOpsTools.AzureDevOps.Assessment' }).RequiredVersion | Should -Be '0.1.0'
-        foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json')) {
+        foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json', 'assessment-snapshot.json', 'assessment-history.json')) {
             Test-Path "$output/reports/$file" | Should -BeTrue
         }
         Test-Path "$output/raw-export/test-project/input.json" | Should -BeTrue
@@ -116,6 +131,41 @@ Describe 'Assessment report integration' {
         $assessment.Messages | Should -Match 'task.uploadsummary'
         $assessment.Messages | Should -Match 'PSRuleReportReady.*true'
         $assessment.Messages | Should -Not -Match 'SucceededWithIssues'
+    }
+
+    It 'records the renamed module identity configuration and completed evaluation in the snapshot' {
+        $output = "$TestDrive/snapshot"
+        $assessment = Invoke-TestAssessment Success $output
+        $assessment.Error | Should -BeNullOrEmpty
+        $snapshot = Get-Content "$output/reports/assessment-snapshot.json" -Raw | ConvertFrom-Json
+        $snapshot.module.name | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
+        $snapshot.module.version | Should -Be '0.1.0'
+        $snapshot.configuration.ruleset | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
+        $snapshot.configuration.rulesetHash | Should -Match '^[a-f0-9]{64}$'
+        $snapshot.evaluation.Status | Should -Be 'Completed'
+        $html = Get-Content "$output/reports/psrule-dashboard.html" -Raw
+        $html | Should -Match 'Project Health &amp; Compliance'
+        $html | Should -Match 'DevOpsTools.AzureDevOps.Assessment 0.1.0'
+        $html | Should -Match 'Historical authentication unavailable'
+    }
+
+    It 'embeds retained history from the same pipeline and branch in the three-tab report' {
+        $output = "$TestDrive/history"
+        $first = Invoke-TestAssessment Success $output
+        $first.Error | Should -BeNullOrEmpty
+        $evidence = New-Item "$output/evidence" -ItemType Directory
+        Copy-Item "$output/reports/assessment-snapshot.json" $evidence.FullName
+        [IO.Compression.ZipFile]::CreateFromDirectory($evidence.FullName, "$output/history-fixture.zip")
+        $second = Invoke-TestAssessment History $output
+        $second.Error | Should -BeNullOrEmpty
+        $html = Get-Content "$output/reports/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.runId | Should -Be 'test-org/43'
+        $data.history.snapshots.Count | Should -Be 1
+        $data.history.snapshots[0].runId | Should -Be 'test-org/42'
+        $data.history.snapshots[0].module.name | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
+        $data.history.snapshots[0].configurationHash | Should -Be $data.configurationHash
+        $html | Should -Not -Match 'fixture-history-token'
     }
 
     It 'installs and imports the explicitly requested package version' {

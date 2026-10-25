@@ -21,6 +21,8 @@ steps:
     path: s/dashboards
   - task: AzureCLI@2
     displayName: Assess organization and generate pipeline dashboard
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
     inputs:
       azureSubscription: psrule-azure
       scriptType: pscore
@@ -49,5 +51,5 @@ steps:
     condition: and(succeededOrFailed(), eq(variables['PSRuleReportReady'], 'true'))
     inputs:
       reportDir: $(Build.ArtifactStagingDirectory)/reports/psrule-dashboard.html
-      tabName: PSRule Dashboard
+      tabName: Project Health & Compliance
       useFilenameTabs: false

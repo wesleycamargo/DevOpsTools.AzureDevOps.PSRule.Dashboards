@@ -14,3 +14,7 @@ myenv.ps1
 !.vscode/extensions.json
 !.vscode/PSScriptAnalyzerSettings.psd1
 *.code-workspace
+
+node_modules/
+test-results/
+playwright-report/

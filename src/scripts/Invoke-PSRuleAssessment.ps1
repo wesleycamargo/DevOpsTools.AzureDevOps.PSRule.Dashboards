@@ -6,6 +6,7 @@ param (
     [string]$OrganizationId = '3b022c28-683d-4d7e-87a5-bd8198332011'
 )
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/AssessmentModel.ps1"
 $exportPath = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'raw-export'
 $reportDirectory = Join-Path $env:BUILD_ARTIFACTSTAGINGDIRECTORY 'reports'
 # Self-hosted agents may reuse their workspace; never assess files from an earlier attempt.
@@ -19,6 +20,7 @@ if (-not (Get-Module -ListAvailable PSRule | Where-Object Version -eq ([version]
 Import-Module PSRule -RequiredVersion 2.9.0 -Force
 Install-Module DevOpsTools.AzureDevOps.Assessment -RequiredVersion $ModuleVersion -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
 Import-Module DevOpsTools.AzureDevOps.Assessment -RequiredVersion $ModuleVersion -Force
+$assessmentModule = Get-Module DevOpsTools.AzureDevOps.Assessment | Select-Object -First 1
 Write-Host "Assessment module: DevOpsTools.AzureDevOps.Assessment $ModuleVersion (PSGallery)."
 $accessToken = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
 if ($LASTEXITCODE -ne 0 -or -not $accessToken) { throw 'Could not acquire Azure DevOps authentication.' }
@@ -61,8 +63,16 @@ if (@($results | Where-Object Outcome -eq 'Error').Count) { throw 'The assessmen
 $failedCount = @($results | Where-Object Outcome -eq 'Fail').Count
 Write-Host "Assessment evaluated $($results.Count) results, including $failedCount failures."
 $runId = "$Organization/$($env:BUILD_BUILDID)"
+# Reuse retained artifacts from this pipeline and branch for conservative comparisons.
+$historyPath = Join-Path $reportDirectory 'assessment-history.json'
+if ($env:SYSTEM_TEAMPROJECT -and $env:SYSTEM_DEFINITIONID) {
+    $null = & "$PSScriptRoot/Get-AssessmentHistory.ps1" -Organization $Organization -Project $env:SYSTEM_TEAMPROJECT -DefinitionId ([int]$env:SYSTEM_DEFINITIONID) -Branch $env:BUILD_SOURCEBRANCH -CurrentBuildId ([int]$env:BUILD_BUILDID) -OutputPath $historyPath
+}
+$manifestPath = Join-Path $assessmentModule.ModuleBase 'DevOpsTools.AzureDevOps.Assessment.psd1'
+$configuration = Get-AssessmentConfiguration -ModuleManifestPath $manifestPath -ModuleName 'DevOpsTools.AzureDevOps.Assessment' -Baseline 'Baseline.Default' -Option $option -PSRuleVersion '2.9.0'
+$evaluation = @{ Status = 'Completed'; ErrorCount = 0 }
 # Generate the dashboard entirely within this pipeline run.
-& "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Results $results -Organization $Organization -RunId $runId -OutputDirectory $reportDirectory -CollectionStatus $collectionStatus
+& "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Results $results -Organization $Organization -RunId $runId -OutputDirectory $reportDirectory -CollectionStatus $collectionStatus -ModuleName 'DevOpsTools.AzureDevOps.Assessment' -ModuleVersion $ModuleVersion -Configuration $configuration -Evaluation $evaluation -RuleHelpPath (Join-Path $assessmentModule.ModuleBase 'en') -HistoryPath $historyPath
 Write-Host "##vso[task.uploadsummary]$(Join-Path $reportDirectory 'psrule-summary.md')"
 Write-Host '##vso[task.setvariable variable=PSRuleReportReady]true'
 

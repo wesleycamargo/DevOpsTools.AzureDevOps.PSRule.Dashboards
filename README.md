@@ -23,11 +23,17 @@ Installation or import failures stop the assessment and fail the run.
 
 ### Pipeline run dashboard
 
-The assessment pipeline generates `psrule-dashboard.html` and
-`psrule-summary.md` directly from the detailed assessment results. The dashboard
-contains totals, failure charts by rule and resource, and a findings table with
-project, outcome, and severity filters, text search, and chart drill-downs.
-It is a snapshot of one assessment run.
+The assessment pipeline generates a self-contained **Project Health & Compliance**
+report with three tabs: **Project Health**, **Compliance Readiness** and **Evolution**.
+Shared filters and drill-downs connect project/category findings; organization-wide
+controls stay separate from project scores. Readiness uses measured priorities when
+no effort estimates are configured. Evolution uses retained, compatible assessment
+snapshots and labels missing or incomplete evidence explicitly.
+
+See [Project Health](docs/project-health.md) for the views and calculation rules.
+The pipeline maps `System.AccessToken` for read-only history acquisition from its
+own definition and branch. Missing Build Read access or retained artifacts produces
+visible history limitations; it does not block current report generation.
 
 An organization administrator must install
 [BlakYaks HTML Reports](https://marketplace.visualstudio.com/items?itemName=blakyaks.azure-pipelines-html-reports)
@@ -38,11 +44,11 @@ page. The Markdown summary appears on the run's Extensions tab through
 The pipeline uses the `PSRuleReportReady` variable to publish the HTML tab only
 after a valid report has been generated.
 
-The `psrule-results` artifact retains HTML, Markdown, SARIF, and collection status
-when available. The separate `AzureDevOpsRawData` artifact retains the original JSON
+The `psrule-results` artifact retains HTML, Markdown, SARIF, collection status,
+`assessment-snapshot.json` and `assessment-history.json` when generated. The separate `AzureDevOpsRawData` artifact retains the original JSON
 export with project subfolders, including partial exports after collection failure.
 Available exports are evaluated even when collection is incomplete. HTML and Markdown
-show affected projects, collectors, statuses, and reason codes; totals cover only
+show affected projects, organization collectors, statuses, and reason codes; totals cover only
 the available evaluated data. Collection gaps finish as `SucceededWithIssues` (yellow). Download the artifact
 and open `psrule-dashboard.html` in a browser to use the dashboard offline;
 all styles, scripts, and report data are embedded in the file. Readers need
@@ -55,14 +61,19 @@ fail the run; rule violations are findings. With no usable inputs or results, a
 diagnostic dashboard reports zero evaluated checkpoints and the run finishes yellow.
 SARIF is retained only when evaluation produces results.
 
-From this repository, run the offline PowerShell tests with
-`Invoke-Pester ./tests -Output Detailed`. For browser checks, install Playwright
-in a temporary directory, install its Chromium browser, set `NODE_PATH` to that
-directory's `node_modules`, and run `node tests/PipelineReport.Browser.Tests.cjs`.
-Chromium also requires the host libraries listed by `playwright install-deps chromium`.
-The browser checks exercise the report in an iframe, matching the viewer's
-rendering method. A live run must also confirm the Reports page and Markdown
-summary in Azure DevOps.
+Run the offline checks from this repository:
+
+```powershell
+Invoke-Pester ./tests -Output Detailed
+npm ci
+npx playwright install chromium
+npm test
+npm run test:browser
+```
+
+Browser checks cover tabs, shared filters, historical comparisons, partial/empty
+collection diagnostics, sandboxed iframe rendering and JavaScript-disabled access.
+A live run must separately confirm artifact and HTML task publication in Azure DevOps.
 
 See [dashboard architecture](docs/architecture.md) for assessment flow, pipeline
 structure and report publication.

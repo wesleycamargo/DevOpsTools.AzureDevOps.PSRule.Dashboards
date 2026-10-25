@@ -146,7 +146,7 @@ process {
         OutputPath     = $ReportOutputPath
     }
 
-    Export-AzDevOpsOrganizationRuleData @exportOrgRuleParams
+    Export-AzDevOpsOrganizationRuleData -CompletenessReportPath (Join-Path (Split-Path $ReportOutputPath) 'collection-status.json') @exportOrgRuleParams
 
     Write-Host "##[endgroup]"
 }
