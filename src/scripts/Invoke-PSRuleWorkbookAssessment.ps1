@@ -18,6 +18,8 @@ Connect-AzDevOps -Organization $Organization -OrganizationId $OrganizationId -Ac
 $exportPath = Join-Path $env:PIPELINE_WORKSPACE "psrule-export-$($env:BUILD_BUILDID)"
 New-Item $exportPath -ItemType Directory -Force | Out-Null
 Export-AzDevOpsOrganizationRuleData -Organization $Organization -OrganizationId $OrganizationId -OutputPath $exportPath
+# Make the raw export available even when later rule assertions fail.
+Write-Host '##vso[task.setvariable variable=PSRuleRawDataReady]true'
 # Organization exports live in project subfolders; select actual files recursively.
 $inputFiles = @(Get-ChildItem $exportPath -File -Recurse -Filter '*.json' | Select-Object -ExpandProperty FullName)
 if ($inputFiles.Count -eq 0) { throw 'The organization export produced no JSON input files.' }
