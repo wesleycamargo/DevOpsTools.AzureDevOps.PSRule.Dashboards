@@ -107,9 +107,8 @@ error and artifact behavior remains as documented above.
 The module repository publishes `DevOpsTools.AzureDevOps.PSRule` through
 GitHub Actions to PowerShell Gallery. Assessment installs the published package
 and does not depend on private source access. The weekly module assessment is
-replaced by this daily assessment. Disable old daily assessment,
-weekly assessment and workbook deployment definitions after validating the replacement.
-Update definition mappings and remove UI schedule overrides during cutover.
+replaced by this daily assessment. The operational cutover completed on 2026-10-25;
+see the validation and rollback record below.
 
 Standalone Bicep and publishing scripts remain for existing installations. They
 are outside the assessment execution path; existing Azure resources are not deleted.
@@ -119,6 +118,56 @@ older template. The reviewed reporter is now included in the source-backed YAML 
 `Invoke-PSRuleWorkbookAssessment.ps1` and its compressed task bundler remain
 standalone legacy compatibility utilities; `run-assessment` never calls them.
 Historical run IDs and their report artifacts remain unchanged.
+
+## Hosted cutover verification — 2026-10-25
+
+Definition **19**, `run-assessment`, is enabled and uses dashboard `main`.
+Manual runs [141](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=141)
+and [142](https://dev.azure.com/ai-experiments/PSRule.Rules.AzureDevOps/_build/results?buildId=142)
+validated commit `37d213c0923e9027cf6f7e3aca3e28833968e156` on the Microsoft-hosted
+`Azure Pipelines` pool with `ubuntu-latest`. Both installed
+`DevOpsTools.AzureDevOps.PSRule` **0.2.1** from PowerShell Gallery and evaluated
+**546 checkpoints: 241 Pass, 305 Fail, zero execution errors**.
+
+Both runs completed with issues because the organization billing collector remains
+`Unavailable` / `EndpointUnavailable`. This accepted coverage gap stays visible;
+it is not a passing control and does not establish a permissions diagnosis.
+All other organization collectors completed. Billing investigation remains separate
+from this cutover; no role, subscription, or hosted-capacity changes were made.
+
+Report, raw-export and HTML publication tasks succeeded. The downloaded snapshots
+and history agree with the run totals. The exact published HTML from each run
+rendered and switched all three tabs without JavaScript errors. Run 142 retrieved
+snapshots from runs **140 and 141**, confirming history across hosted runs. Its
+retention limitation remains explicit; incomplete evidence cannot prove improvement.
+
+The portal's Scheduled runs and trigger diagnostics confirmed:
+
+- CI and PR triggers are disabled for `main`.
+- The YAML schedule `0 6 * * *` is synchronized, with no UI schedule override.
+- The next scheduled run is **2026-10-26 06:00 UTC**, repeating daily even without changes.
+- No unsynchronized schedules or resource/build-completion triggers were reported.
+
+The first naturally scheduled run remains to be observed. Manual runs validate the
+execution path; the displayed next schedule verifies configuration, not a completed
+automatic execution. See [Microsoft's schedule guidance](https://learn.microsoft.com/azure/devops/pipelines/process/scheduled-triggers).
+
+After these checks, only `queueStatus` was changed for the legacy definitions:
+
+| Definition | Before revision | After revision | Current state |
+| --- | --- | --- | --- |
+| 14 — legacy assessment | 4 | 5 | Disabled |
+| 16 — workbook deployment | 6 | 7 | Disabled |
+| 17 — classic assessment / workbook publishing | 17 | 18 | Disabled |
+| 15 and 18 — setup utilities | Unchanged | Unchanged | Disabled |
+| 19 — run-assessment | 3 | 3 | Enabled |
+
+Re-reading the definitions confirmed unchanged process definitions (including the
+classic embedded bundle), variables, repositories, triggers and queues. Existing
+runs, artifacts and Azure resources were retained. For rollback, re-read the latest
+revision and restore only the affected definition's `queueStatus` to `enabled`;
+coordinate definition 19's state to avoid duplicate execution. Do not restore an
+old full definition over newer edits or replace the classic bundle.
 
 ## Validation
 
