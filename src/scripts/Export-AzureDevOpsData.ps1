@@ -93,10 +93,10 @@ begin {
 
     Write-Host "##[endgroup]"
 
-    Write-Host "##[group]Import custom module [PSRule.Rules.AzureDevOps]"
+    Write-Host "##[group]Import custom module [DevOpsTools.AzureDevOps.Assessment]"
 
     try {
-        Import-Module -Name PSRule.Rules.AzureDevOps -ErrorAction Stop
+        Import-Module -Name DevOpsTools.AzureDevOps.Assessment -ErrorAction Stop
     }
     catch {
         throw $_

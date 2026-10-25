@@ -42,7 +42,8 @@ BeforeAll {
                 }
                 function New-PSRuleOption { }
                 function Assert-PSRule {
-                    param($ResultVariable, $OutputPath, $InputPath)
+                    param($ResultVariable, $OutputPath, $InputPath, $Module)
+                    if ($Module -ne 'DevOpsTools.AzureDevOps.Assessment') { throw "Unexpected assessment module: $Module" }
                     if ($Scenario -eq 'NoInputs') { throw 'Empty inputs reached evaluation.' }
                     if ($Scenario -eq 'ReportError') { New-Item (Join-Path (Split-Path $OutputPath) 'psrule-dashboard.html') -ItemType Directory | Out-Null }
                     if (@($InputPath).Count -ne 1 -or $InputPath[0] -notmatch 'input.json$') { throw 'Unexpected assessment inputs.' }

@@ -21,7 +21,7 @@ var workbook = {
     {
       type: 1
       content: {
-        json: '## Azure DevOps Best Practice Audit\n---\n\nThis workbook contains links to explore the various workbooks built\nfor [PSRule.Rules.AzureDevOps](https://github.com/cloudyspells/PSRule.Rules.AzureDevOps).\n\nCurrently workbooks for exploring results either by rule or by resource are available.'
+        json: '## Azure DevOps Best Practice Audit\n---\n\nThis workbook contains links to explore the various workbooks built\nfor [DevOpsTools.AzureDevOps.Assessment](https://github.com/cloudyspells/PSRule.Rules.AzureDevOps).\n\nCurrently workbooks for exploring results either by rule or by resource are available.'
       }
       name: 'text - 2'
     }

@@ -37,7 +37,7 @@ steps:
       scriptLocation: scriptPath
       scriptPath: $(Pipeline.Workspace)/s/dashboards/src/scripts/Invoke-PSRuleAssessment.ps1
       arguments: >-
-        -ModuleManifestPath "$(Pipeline.Workspace)/s/rules/src/PSRule.Rules.AzureDevOps/PSRule.Rules.AzureDevOps.psd1"
+        -ModuleManifestPath "$(Pipeline.Workspace)/s/rules/src/DevOpsTools.AzureDevOps.Assessment/DevOpsTools.AzureDevOps.Assessment.psd1"
       visibleAzLogin: false
       useGlobalConfig: false
   - task: PublishBuildArtifacts@1

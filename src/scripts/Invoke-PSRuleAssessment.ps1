@@ -45,7 +45,7 @@ $option = New-PSRuleOption -OutputStyle Plain -OutputAs Detail
 $evaluationResults = $null
 $evaluationErrors = @()
 if ($inputFiles.Count) {
-    $null = Assert-PSRule -InputPath $inputFiles -Module PSRule.Rules.AzureDevOps -Baseline Baseline.Default -Culture en -Style Plain -As Detail -Option $option -OutputPath $reportPath -OutputFormat Sarif -ResultVariable evaluationResults -ErrorAction SilentlyContinue -ErrorVariable evaluationErrors
+    $null = Assert-PSRule -InputPath $inputFiles -Module DevOpsTools.AzureDevOps.Assessment -Baseline Baseline.Default -Culture en -Style Plain -As Detail -Option $option -OutputPath $reportPath -OutputFormat Sarif -ResultVariable evaluationResults -ErrorAction SilentlyContinue -ErrorVariable evaluationErrors
     foreach ($errorRecord in $evaluationErrors) {
         if ($errorRecord.FullyQualifiedErrorId -eq 'PSRule.Fail,Assert-PSRule') { continue }
         # PSRule 2.9 probes this optional preference; an unset value means default autoloading.

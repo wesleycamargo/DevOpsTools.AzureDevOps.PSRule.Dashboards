@@ -60,7 +60,7 @@ and remove all the bulleted list elements that are not relevant for this issue. 
 * OS: <!--[e.g. Ubuntu 5.4.0-26-generic x86_64 / Windows 1904 ...]-->
 * PowerShell version:
 * PSRule version:
-* PSRule.Rules.AzureDevOps version:
+* DevOpsTools.AzureDevOps.Assessment version:
 
 
 ---

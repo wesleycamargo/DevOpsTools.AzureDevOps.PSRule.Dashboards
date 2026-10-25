@@ -1,4 +1,4 @@
-# PSRule.Rules.AzureDevOps Azure Monitor Workbooks
+# DevOpsTools.AzureDevOps.Assessment dashboards
 
 ## Overview
 
@@ -14,8 +14,11 @@ and `github.com_wesleycamargo` for checking out the rules repository's `main` br
 The service principal needs read access to the assessed organization and projects.
 No workspace, ingestion rule, shared workspace key, or Azure deployment is required.
 
-The module's separate pipeline publishes to Azure Artifacts; assessment uses source
-from `main` rather than waiting for a package release.
+The `DevOpsTools.AzureDevOps.Assessment` module is published to PowerShell Gallery
+through GitHub Actions. Assessment imports its source from `main`; it does not
+wait for a package release. The rules repository remains
+`wesleycamargo/PSRule.Rules.AzureDevOps`. Deploy the module rename to its `main`
+branch before deploying this pipeline's updated manifest path.
 
 ### Pipeline run dashboard
 
