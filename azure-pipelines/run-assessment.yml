@@ -13,22 +13,12 @@ schedules:
 variables:
   PSRuleReportReady: 'false'
 
-resources:
-  repositories:
-    - repository: rules
-      type: github
-      endpoint: github.com_wesleycamargo
-      name: wesleycamargo/DevOpsTools.AzureDevOps.Assessment
-      ref: refs/heads/main
-
 pool:
   name: AI-Pool
 
 steps:
   - checkout: self
     path: s/dashboards
-  - checkout: rules
-    path: s/rules
   - task: AzureCLI@2
     displayName: Assess organization and generate pipeline dashboard
     inputs:
@@ -37,7 +27,7 @@ steps:
       scriptLocation: scriptPath
       scriptPath: $(Pipeline.Workspace)/s/dashboards/src/scripts/Invoke-PSRuleAssessment.ps1
       arguments: >-
-        -ModuleManifestPath "$(Pipeline.Workspace)/s/rules/src/DevOpsTools.AzureDevOps.Assessment/DevOpsTools.AzureDevOps.Assessment.psd1"
+        -ModuleVersion "0.1.0"
       visibleAzLogin: false
       useGlobalConfig: false
   - task: PublishBuildArtifacts@1

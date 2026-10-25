@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory)]
-    [string]$ModuleManifestPath,
+    [string]$ModuleVersion,
     [string]$Organization = 'ai-experiments',
     [string]$OrganizationId = '3b022c28-683d-4d7e-87a5-bd8198332011'
 )
@@ -14,10 +14,12 @@ foreach ($directory in @($exportPath, $reportDirectory)) {
     New-Item $directory -ItemType Directory -Force | Out-Null
 }
 if (-not (Get-Module -ListAvailable PSRule | Where-Object Version -eq ([version]'2.9.0'))) {
-    Install-Module PSRule -RequiredVersion 2.9.0 -Scope CurrentUser -Force -SkipPublisherCheck
+    Install-Module PSRule -RequiredVersion 2.9.0 -Repository PSGallery -Scope CurrentUser -Force -SkipPublisherCheck
 }
 Import-Module PSRule -RequiredVersion 2.9.0 -Force
-Import-Module $ModuleManifestPath -Force
+Install-Module DevOpsTools.AzureDevOps.Assessment -RequiredVersion $ModuleVersion -Repository PSGallery -Scope CurrentUser -Force -AllowClobber
+Import-Module DevOpsTools.AzureDevOps.Assessment -RequiredVersion $ModuleVersion -Force
+Write-Host "Assessment module: DevOpsTools.AzureDevOps.Assessment $ModuleVersion (PSGallery)."
 $accessToken = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
 if ($LASTEXITCODE -ne 0 -or -not $accessToken) { throw 'Could not acquire Azure DevOps authentication.' }
 Connect-AzDevOps -Organization $Organization -OrganizationId $OrganizationId -AccessToken $accessToken

@@ -10,17 +10,16 @@ It does not deploy Azure workbooks or publish to Log Analytics.
 
 Create or update the assessment definition to use `azure-pipelines/run-assessment.yml`.
 Authorize the existing `psrule-azure` service connection for Azure DevOps collection
-and `github.com_wesleycamargo` for checking out the rules repository's `main` branch.
+and `github.com_wesleycamargo` for checking out this dashboard repository.
 The service principal needs read access to the assessed organization and projects.
 No workspace, ingestion rule, shared workspace key, or Azure deployment is required.
 
-The `DevOpsTools.AzureDevOps.Assessment` module is published to PowerShell Gallery
-through GitHub Actions. Assessment imports its source from `main`; it does not
-wait for a package release. The rules source is the private repository
-`wesleycamargo/DevOpsTools.AzureDevOps.Assessment`. The
-`github.com_wesleycamargo` service connection must have read access to that
-repository. Publish the module source to its `main` branch before deploying
-this pipeline's updated checkout and manifest path.
+The pipeline installs `DevOpsTools.AzureDevOps.Assessment` **0.1.0** from
+PowerShell Gallery and imports that exact version alongside PSRule **2.9.0**.
+Only dashboard source is checked out; the private module repository is outside
+the assessment execution path. To adopt a later package release, update
+`-ModuleVersion` in `azure-pipelines/run-assessment.yml` after publishing it.
+Installation or import failures stop the assessment and fail the run.
 
 ### Pipeline run dashboard
 

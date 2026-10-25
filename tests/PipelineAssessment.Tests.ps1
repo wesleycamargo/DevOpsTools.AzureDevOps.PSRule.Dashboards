@@ -1,11 +1,11 @@
 BeforeAll {
     $assessmentPath = (Resolve-Path "$PSScriptRoot/../src/scripts/Invoke-PSRuleAssessment.ps1").Path
     function Invoke-TestAssessment {
-        param([string]$Scenario, [string]$OutputDirectory)
+        param([string]$Scenario, [string]$OutputDirectory, [string]$ModuleVersion = '0.1.0')
         # Isolate collector/PSRule/Azure adapters while running the real orchestration and report writer.
         $runner = [powershell]::Create()
         $harness = {
-            param($AssessmentPath, $Scenario, $OutputDirectory)
+            param($AssessmentPath, $Scenario, $OutputDirectory, $ModuleVersion)
             $previousEnvironment = @{}
             foreach ($name in @('PIPELINE_WORKSPACE', 'BUILD_BUILDID', 'BUILD_ARTIFACTSTAGINGDIRECTORY')) {
                 $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
@@ -16,7 +16,17 @@ BeforeAll {
                 $env:BUILD_ARTIFACTSTAGINGDIRECTORY = $OutputDirectory
                 New-Item $OutputDirectory -ItemType Directory -Force | Out-Null
                 function Get-Module { [pscustomobject]@{ Version = [version]'2.9.0' } }
-                function Import-Module { }
+                $moduleCalls = [System.Collections.Generic.List[object]]::new()
+                function Install-Module {
+                    param($Name, $RequiredVersion, $Repository, $Scope, [switch]$Force, [switch]$AllowClobber)
+                    $moduleCalls.Add([pscustomobject]@{ Operation = 'Install'; Name = $Name; RequiredVersion = $RequiredVersion; Repository = $Repository; Scope = $Scope; AllowClobber = $AllowClobber.IsPresent })
+                    if ($Scenario -eq 'ModuleInstallError') { throw 'Gallery installation failed.' }
+                }
+                function Import-Module {
+                    param($Name, $RequiredVersion, [switch]$Force)
+                    $moduleCalls.Add([pscustomobject]@{ Operation = 'Import'; Name = $Name; RequiredVersion = $RequiredVersion })
+                    if ($Name -eq 'DevOpsTools.AzureDevOps.Assessment' -and $Scenario -eq 'ModuleImportError') { throw 'Module import failed.' }
+                }
                 function Connect-AzDevOps { if ($Scenario -eq 'AuthenticationError') { throw 'Authentication failed.' } }
                 function Export-AzDevOpsOrganizationRuleData {
                     [CmdletBinding()]
@@ -69,17 +79,17 @@ BeforeAll {
                 function Invoke-WebRequest { throw 'Unexpected external publication.' }
                 function Invoke-RestMethod { throw 'Unexpected Log Analytics request.' }
                 try {
-                    & $AssessmentPath -ModuleManifestPath 'test-module.psd1' -Organization test-org
-                    [pscustomobject]@{ Error = $null }
-                } catch { [pscustomobject]@{ Error = $_.Exception.Message } }
+                    & $AssessmentPath -ModuleVersion $ModuleVersion -Organization test-org
+                    [pscustomobject]@{ Error = $null; ModuleCalls = $moduleCalls.ToArray() }
+                } catch { [pscustomobject]@{ Error = $_.Exception.Message; ModuleCalls = $moduleCalls.ToArray() } }
             } finally {
                 foreach ($name in $previousEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name]) }
             }
         }
         try {
-            $null = $runner.AddScript($harness.ToString()).AddArgument($assessmentPath).AddArgument($Scenario).AddArgument($OutputDirectory)
+            $null = $runner.AddScript($harness.ToString()).AddArgument($assessmentPath).AddArgument($Scenario).AddArgument($OutputDirectory).AddArgument($ModuleVersion)
             $result = $runner.Invoke()
-            [pscustomobject]@{ Error = $result[-1].Error; Messages = $runner.Streams.Information.MessageData -join "`n" }
+            [pscustomobject]@{ Error = $result[-1].Error; ModuleCalls = $result[-1].ModuleCalls; Messages = $runner.Streams.Information.MessageData -join "`n" }
         } finally { $runner.Dispose() }
     }
 }
@@ -89,6 +99,15 @@ Describe 'Assessment report integration' {
         $output = "$TestDrive/success"
         $assessment = Invoke-TestAssessment Success $output
         $assessment.Error | Should -BeNullOrEmpty
+        $installation = @($assessment.ModuleCalls | Where-Object Operation -EQ 'Install')
+        $installation.Count | Should -Be 1
+        $installation[0].Name | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
+        $installation[0].RequiredVersion | Should -Be '0.1.0'
+        $installation[0].Repository | Should -Be 'PSGallery'
+        $installation[0].Scope | Should -Be 'CurrentUser'
+        $installation[0].AllowClobber | Should -BeTrue
+        @($assessment.ModuleCalls | Where-Object Operation -EQ 'Import').Name | Should -Be @('PSRule', 'DevOpsTools.AzureDevOps.Assessment')
+        ($assessment.ModuleCalls | Where-Object { $_.Operation -eq 'Import' -and $_.Name -eq 'DevOpsTools.AzureDevOps.Assessment' }).RequiredVersion | Should -Be '0.1.0'
         foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json')) {
             Test-Path "$output/reports/$file" | Should -BeTrue
         }
@@ -97,6 +116,14 @@ Describe 'Assessment report integration' {
         $assessment.Messages | Should -Match 'task.uploadsummary'
         $assessment.Messages | Should -Match 'PSRuleReportReady.*true'
         $assessment.Messages | Should -Not -Match 'SucceededWithIssues'
+    }
+
+    It 'installs and imports the explicitly requested package version' {
+        $assessment = Invoke-TestAssessment Success "$TestDrive/version" -ModuleVersion '0.2.0'
+        $assessment.Error | Should -BeNullOrEmpty
+        $calls = @($assessment.ModuleCalls | Where-Object Name -EQ 'DevOpsTools.AzureDevOps.Assessment')
+        $calls.Count | Should -Be 2
+        $calls.RequiredVersion | Should -Be @('0.2.0', '0.2.0')
     }
 
     It 'evaluates partial exports with billing and security gaps and publishes a yellow dashboard' {
@@ -127,7 +154,7 @@ Describe 'Assessment report integration' {
         $assessment.Messages | Should -Match 'SucceededWithIssues'
     }
 
-    It 'keeps <Scenario> failures red' -ForEach @(@{ Scenario = 'AuthenticationError' }, @{ Scenario = 'CollectionError' }, @{ Scenario = 'ReportError' }) {
+    It 'keeps <Scenario> failures red' -ForEach @(@{ Scenario = 'ModuleInstallError' }, @{ Scenario = 'ModuleImportError' }, @{ Scenario = 'AuthenticationError' }, @{ Scenario = 'CollectionError' }, @{ Scenario = 'ReportError' }) {
         $assessment = Invoke-TestAssessment $Scenario "$TestDrive/$Scenario"
         $assessment.Error | Should -Not -BeNullOrEmpty
         $assessment.Messages | Should -Not -Match 'SucceededWithIssues|PSRuleReportReady.*true'

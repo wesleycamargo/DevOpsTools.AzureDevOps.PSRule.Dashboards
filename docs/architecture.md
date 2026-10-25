@@ -5,10 +5,15 @@
 `azure-pipelines/run-assessment.yml` is the dashboard repository's only pipeline
 entry point. It runs manually or daily at 06:00 UTC on `main`, with push and PR
 triggers disabled. `AI-Pool` executes the job; `psrule-azure` supplies the Azure
-DevOps token. Rules are checked out from `main` through `github.com_wesleycamargo`.
+DevOps token. Only dashboard source is checked out. The assessment task installs
+`DevOpsTools.AzureDevOps.Assessment` 0.1.0 from PowerShell Gallery and imports that
+exact version, with PSRule 2.9.0. The private module repository is not accessed.
 
 ```text
-Schedule / manual -> Check out dashboards + rules -> Export organization
+Schedule / manual -> Check out dashboards -> Install Gallery modules
+                                                       |
+                                                       v
+                                                Export organization
                                                        |          |
                                                        |          +-> Raw artifact
                                                        v
@@ -27,6 +32,8 @@ Schedule / manual -> Check out dashboards + rules -> Export organization
 `Invoke-PSRuleAssessment.ps1` collects organization data, evaluates PSRule 2.9.0
 with `Baseline.Default`, and invokes `Export-PSRulePipelineReport.ps1`. No Azure
 resource deployment, Monitor ingestion, or Log Analytics query is part of the run.
+The package version is pinned by `-ModuleVersion` in the YAML. Update the pin after
+publishing a new module version. Installation and import failures remain red.
 
 The script resets its dedicated `raw-export` and `reports` staging directories
 before each attempt, so reused agents cannot contribute stale results. Collection
@@ -60,12 +67,9 @@ permissions and retention; retain runs when their evidence must be preserved.
 ## Consolidation and legacy resources
 
 The module repository publishes `DevOpsTools.AzureDevOps.Assessment` through
-GitHub Actions to PowerShell Gallery. Assessment continues to import checked-out
-source from `main` in the private
-`wesleycamargo/DevOpsTools.AzureDevOps.Assessment` repository, using the renamed
-manifest. Grant the existing GitHub service connection read access to the new
-repository before deploying this pipeline update. The weekly module assessment is replaced by this
-daily assessment. Disable old daily assessment,
+GitHub Actions to PowerShell Gallery. Assessment installs the published package
+and does not depend on private source access. The weekly module assessment is
+replaced by this daily assessment. Disable old daily assessment,
 weekly assessment and workbook deployment definitions after validating the replacement.
 Update definition mappings and remove UI schedule overrides during cutover.
 
