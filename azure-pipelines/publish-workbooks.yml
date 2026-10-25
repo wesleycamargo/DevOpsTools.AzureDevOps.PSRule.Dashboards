@@ -4,6 +4,7 @@ pr: none
 
 variables:
   PSRuleReportReady: 'false'
+  PSRuleRawDataReady: 'false'
 
 resources:
   repositories:
@@ -38,6 +39,15 @@ steps:
     inputs:
       PathtoPublish: $(Build.ArtifactStagingDirectory)
       ArtifactName: psrule-results
+      publishLocation: Container
+  # Additional File Container artifact for direct Power BI REST API access.
+  # Retain the existing pipeline artifacts; this is a separate raw-data publication.
+  - task: PublishBuildArtifacts@1
+    displayName: Publish raw data for Power BI
+    condition: and(succeededOrFailed(), eq(variables['PSRuleRawDataReady'], 'true'))
+    inputs:
+      PathtoPublish: $(Pipeline.Workspace)/psrule-export-$(Build.BuildId)
+      ArtifactName: psrule-raw-data
       publishLocation: Container
   - task: PublishHtmlReport@1
     displayName: Publish PSRule Dashboard tab
