@@ -61,8 +61,10 @@ permissions and retention; retain runs when their evidence must be preserved.
 
 The module repository publishes `DevOpsTools.AzureDevOps.Assessment` through
 GitHub Actions to PowerShell Gallery. Assessment continues to import checked-out
-source from `main`, using the renamed manifest. Merge the module rename before
-deploying this pipeline update. The weekly module assessment is replaced by this
+source from `main` in the private
+`wesleycamargo/DevOpsTools.AzureDevOps.Assessment` repository, using the renamed
+manifest. Grant the existing GitHub service connection read access to the new
+repository before deploying this pipeline update. The weekly module assessment is replaced by this
 daily assessment. Disable old daily assessment,
 weekly assessment and workbook deployment definitions after validating the replacement.
 Update definition mappings and remove UI schedule overrides during cutover.

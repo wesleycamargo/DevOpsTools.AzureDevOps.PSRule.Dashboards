@@ -18,7 +18,7 @@ resources:
     - repository: rules
       type: github
       endpoint: github.com_wesleycamargo
-      name: wesleycamargo/PSRule.Rules.AzureDevOps
+      name: wesleycamargo/DevOpsTools.AzureDevOps.Assessment
       ref: refs/heads/main
 
 pool:

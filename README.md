@@ -16,9 +16,11 @@ No workspace, ingestion rule, shared workspace key, or Azure deployment is requi
 
 The `DevOpsTools.AzureDevOps.Assessment` module is published to PowerShell Gallery
 through GitHub Actions. Assessment imports its source from `main`; it does not
-wait for a package release. The rules repository remains
-`wesleycamargo/PSRule.Rules.AzureDevOps`. Deploy the module rename to its `main`
-branch before deploying this pipeline's updated manifest path.
+wait for a package release. The rules source is the private repository
+`wesleycamargo/DevOpsTools.AzureDevOps.Assessment`. The
+`github.com_wesleycamargo` service connection must have read access to that
+repository. Publish the module source to its `main` branch before deploying
+this pipeline's updated checkout and manifest path.
 
 ### Pipeline run dashboard
 
