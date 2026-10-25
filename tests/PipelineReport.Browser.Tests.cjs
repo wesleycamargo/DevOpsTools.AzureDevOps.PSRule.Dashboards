@@ -79,6 +79,22 @@ const { chromium } = require('playwright');
         await page.setViewportSize({ width: 480, height: 900 });
         const width = await frame.locator('body').evaluate(() => ({ content: document.documentElement.scrollWidth, viewport: window.innerWidth }));
         assert.ok(width.content <= width.viewport, 'Dashboard should fit a narrow viewport');
+        // Render a diagnostic-only report in the same iframe and verify safe diagnostics.
+        writeFileSync(fixture, '[]');
+        const statusFile = path.join(output, 'status.json');
+        writeFileSync(statusFile, JSON.stringify({ Status: 'Unavailable', Projects: [{ Project: attack, Status: 'Unavailable', Collectors: [{ Command: 'billing', Status: 'Failed', ReasonCodes: ['CollectorFailed'] }] }] }));
+        execFileSync('pwsh', ['-NoProfile', '-Command', '& $env:PSRULE_REPORT_SCRIPT -Results @() -CollectionStatus (Get-Content $env:PSRULE_REPORT_STATUS -Raw | ConvertFrom-Json) -Organization test-org -RunId test-org/43 -OutputDirectory $env:PSRULE_REPORT_OUTPUT'], {
+            env: { ...process.env, PSRULE_REPORT_SCRIPT: path.resolve(__dirname, '../src/scripts/Export-PSRulePipelineReport.ps1'), PSRULE_REPORT_STATUS: statusFile, PSRULE_REPORT_OUTPUT: output }
+        });
+        await page.evaluate(html => { document.getElementById('report-frame').srcdoc = html; }, readFileSync(path.join(output, 'psrule-dashboard.html'), 'utf8'));
+        await frame.locator('#no-results').waitFor({ state: 'visible' });
+        assert.equal(await frame.locator('#total').textContent(), '0');
+        assert.equal(await frame.locator('#coverage').isVisible(), true);
+        assert.ok((await frame.locator('#collection-issues').textContent()).includes(attack));
+        assert.ok((await frame.locator('#collection-issues').textContent()).includes('CollectorFailed'));
+        assert.equal(await frame.locator('#rule-chart').textContent(), 'No assessment results available.');
+        assert.equal(await frame.locator('img').count(), 0);
+        assert.equal(await frame.locator('body').evaluate(() => window.reportInjected), undefined);
         assert.deepEqual(errors, []);
         assert.deepEqual(network, []);
         console.log(`Browser checks passed: filters, drill-downs, pagination, escaping, empty selection, responsive layout, and no network requests. Preview: ${output}`);

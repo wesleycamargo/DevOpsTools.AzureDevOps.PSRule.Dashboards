@@ -35,7 +35,10 @@ button:disabled { opacity: .5; cursor: default; } .empty { color: var(--muted); 
 </head>
 <body>
 <main>
-<header><h1>PSRule Dashboard</h1><p id="run-info"></p><p>Assessment snapshot. Check the pipeline status for workbook publication errors.</p></header>
+<header><h1>PSRule Dashboard</h1><p id="run-info"></p><p>Assessment snapshot. Check the pipeline status for report or artifact publication errors.</p></header>
+<section id="coverage" class="panel" style="border-color:#b87900;margin-bottom:20px" hidden><h2>Incomplete collection</h2><p>Missing collection data is not evidence of passing controls.</p><ul id="collection-issues"></ul></section>
+<section id="no-results" class="panel" hidden><h2>No assessment results available</h2><p>Zero evaluated checkpoints. No compliance conclusion is available.</p></section>
+<p>Totals cover only the available evaluated data.</p>
 <noscript>This interactive report requires JavaScript. The Markdown summary contains the assessment totals.</noscript>
 <section class="filters" aria-label="Filter assessment results">
 <label>Project<select id="project"><option value="">All projects</option></select></label>
@@ -65,6 +68,13 @@ button:disabled { opacity: .5; cursor: default; } .empty { color: var(--muted); 
 'use strict';
 const report = JSON.parse(document.getElementById('report-data').textContent);
 const results = report.results;
+document.getElementById('coverage').hidden = !report.collectionIncomplete;
+document.getElementById('no-results').hidden = results.length > 0;
+for (const issue of report.collectionIssues || []) {
+    const item = document.createElement('li');
+    item.textContent = `${issue.project} · ${issue.collector} · ${issue.status} · ${issue.reasonCodes.join(', ')}`;
+    document.getElementById('collection-issues').append(item);
+}
 const controls = ['project', 'outcome', 'severity', 'search'].map(id => document.getElementById(id));
 let page = 0;
 let ruleFilter = null;
@@ -87,7 +97,7 @@ function chart(id, rows, field) {
         group.count++; groups.set(key, group);
     }
     const ranked = [...groups.entries()].sort((a, b) => b[1].count - a[1].count || a[1].label.localeCompare(b[1].label)).slice(0, 10);
-    if (!ranked.length) { const message = document.createElement('p'); message.className = 'empty'; message.textContent = 'No failures in this selection.'; container.append(message); return; }
+    if (!ranked.length) { const message = document.createElement('p'); message.className = 'empty'; message.textContent = results.length ? 'No failures in this selection.' : 'No assessment results available.'; container.append(message); return; }
     for (const [key, group] of ranked) {
         const row = document.createElement('div'); row.className = 'bar-row';
         const label = document.createElement('button'); label.type = 'button'; label.className = 'bar-label'; label.textContent = group.label;
@@ -119,7 +129,7 @@ function render() {
         }
         tbody.append(tr);
     }
-    if (!selected.length) { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 5; td.textContent = 'No results match these filters.'; tr.append(td); tbody.append(tr); }
+    if (!selected.length) { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 5; td.textContent = results.length ? 'No results match these filters.' : 'No assessment results available.'; tr.append(td); tbody.append(tr); }
     document.getElementById('page-info').textContent = `Page ${page + 1} of ${pages}`;
     document.getElementById('previous').disabled = page === 0; document.getElementById('next').disabled = page === pages - 1;
 }

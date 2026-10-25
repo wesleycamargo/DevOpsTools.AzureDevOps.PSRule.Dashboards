@@ -17,23 +17,34 @@ BeforeAll {
                 New-Item $OutputDirectory -ItemType Directory -Force | Out-Null
                 function Get-Module { [pscustomobject]@{ Version = [version]'2.9.0' } }
                 function Import-Module { }
-                function Connect-AzDevOps { }
+                function Connect-AzDevOps { if ($Scenario -eq 'AuthenticationError') { throw 'Authentication failed.' } }
                 function Export-AzDevOpsOrganizationRuleData {
-                    param($OutputPath, $CompletenessReportPath, [switch]$Strict)
-                    if (-not $Strict) { throw 'Strict collection was not requested.' }
+                    [CmdletBinding()]
+                    param($OutputPath, $CompletenessReportPath, $Organization, $OrganizationId, [switch]$Strict)
+                    if ($Strict) { throw 'Strict collection was requested.' }
                     if ($CompletenessReportPath.StartsWith($OutputPath)) { throw 'Completeness metadata is inside rule inputs.' }
-                    '{"complete":true}' | Set-Content $CompletenessReportPath
+                    '{"SchemaVersion":1,"Status":"Complete","Projects":[]}' | Set-Content $CompletenessReportPath
+                    if ($Scenario -eq 'NoInputs') { return }
+                    if ($Scenario -eq 'CollectionError') { throw 'Unexpected collection failure.' }
                     $project = New-Item (Join-Path $OutputPath 'test-project') -ItemType Directory -Force
                     '{}' | Set-Content (Join-Path $project.FullName 'input.json')
                     if ($Scenario -eq 'Incomplete') {
-                        '{"complete":false}' | Set-Content $CompletenessReportPath
-                        throw 'Collection incomplete.'
+                        @{
+                            SchemaVersion = 1; Status = 'Partial'; Projects = @(@{
+                                Project = 'test-project'; Status = 'Partial'; Collectors = @(
+                                    @{ Command = 'Export-AdoOrganizationGeneralBillingSettings'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }
+                                    @{ Command = 'Export-AdoOrganizationSecurityPolicies'; Status = 'Partial'; ReasonCodes = @('MissingRequiredData') }
+                                )
+                            })
+                        } | ConvertTo-Json -Depth 8 | Set-Content $CompletenessReportPath
+                        Write-Error "Billing 50% failed`n##vso[task.complete result=Failed;]" -ErrorAction Continue
                     }
                 }
                 function New-PSRuleOption { }
                 function Assert-PSRule {
                     param($ResultVariable, $OutputPath, $InputPath)
-                    if ($Scenario -eq 'Incomplete') { throw 'Incomplete data reached evaluation.' }
+                    if ($Scenario -eq 'NoInputs') { throw 'Empty inputs reached evaluation.' }
+                    if ($Scenario -eq 'ReportError') { New-Item (Join-Path (Split-Path $OutputPath) 'psrule-dashboard.html') -ItemType Directory | Out-Null }
                     if (@($InputPath).Count -ne 1 -or $InputPath[0] -notmatch 'input.json$') { throw 'Unexpected assessment inputs.' }
                     $results = @('Pass', 'Fail' | ForEach-Object {
                         [pscustomobject]@{
@@ -84,34 +95,41 @@ Describe 'Assessment report integration' {
         Test-Path "$output/raw-export/collection-status.json" | Should -BeFalse
         $assessment.Messages | Should -Match 'task.uploadsummary'
         $assessment.Messages | Should -Match 'PSRuleReportReady.*true'
+        $assessment.Messages | Should -Not -Match 'SucceededWithIssues'
     }
 
-    It 'retains partial raw exports and diagnostics when strict collection fails' {
+    It 'evaluates partial exports with billing and security gaps and publishes a yellow dashboard' {
         $output = "$TestDrive/incomplete"
         $assessment = Invoke-TestAssessment Incomplete $output
-        $assessment.Error | Should -Be 'Collection incomplete.'
+        $assessment.Error | Should -BeNullOrEmpty
+        foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json')) {
+            Test-Path "$output/reports/$file" | Should -BeTrue
+        }
         Test-Path "$output/raw-export/test-project/input.json" | Should -BeTrue
-        Test-Path "$output/reports/collection-status.json" | Should -BeTrue
-        Test-Path "$output/reports/psrule-results.sarif" | Should -BeFalse
-        $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
+        $assessment.Messages | Should -Match 'PSRuleReportReady.*true'
+        $assessment.Messages | Should -Match 'task.complete result=SucceededWithIssues'
+        $assessment.Messages | Should -Match 'Billing 50%AZP25 failed%0A##vso'
+        $assessment.Messages | Should -Not -Match '(?m)^##vso\[task.complete result=Failed'
+        Get-Content "$output/reports/psrule-summary.md" -Raw | Should -Match 'MissingRequiredData'
     }
 
-    It 'clears stale exports and reports before a repeated attempt' {
-        $output = "$TestDrive/retry"
+    It 'clears stale files and publishes diagnostics for <Scenario>' -ForEach @(@{ Scenario = 'NoInputs' }, @{ Scenario = 'Empty' }) {
+        $output = "$TestDrive/retry-$Scenario"
         $null = Invoke-TestAssessment Success $output
         '{}' | Set-Content "$output/raw-export/stale.json"
-        $assessment = Invoke-TestAssessment Incomplete $output
-        $assessment.Error | Should -Be 'Collection incomplete.'
+        $assessment = Invoke-TestAssessment $Scenario $output
+        $assessment.Error | Should -BeNullOrEmpty
         Test-Path "$output/raw-export/stale.json" | Should -BeFalse
-        Test-Path "$output/reports/psrule-dashboard.html" | Should -BeFalse
+        Test-Path "$output/reports/psrule-results.sarif" | Should -BeFalse
+        Get-Content "$output/reports/psrule-summary.md" -Raw | Should -Match 'No assessment results available'
+        $assessment.Messages | Should -Match 'PSRuleReportReady.*true'
+        $assessment.Messages | Should -Match 'SucceededWithIssues'
     }
 
-    It 'does not publish a dashboard for zero evaluated results' {
-        $output = "$TestDrive/empty"
-        $assessment = Invoke-TestAssessment Empty $output
-        $assessment.Error | Should -Match 'zero rule results'
-        Test-Path "$output/reports/psrule-dashboard.html" | Should -BeFalse
-        $assessment.Messages | Should -Not -Match 'PSRuleReportReady'
+    It 'keeps <Scenario> failures red' -ForEach @(@{ Scenario = 'AuthenticationError' }, @{ Scenario = 'CollectionError' }, @{ Scenario = 'ReportError' }) {
+        $assessment = Invoke-TestAssessment $Scenario "$TestDrive/$Scenario"
+        $assessment.Error | Should -Not -BeNullOrEmpty
+        $assessment.Messages | Should -Not -Match 'SucceededWithIssues|PSRuleReportReady.*true'
     }
 
     It 'does not publish a success-looking dashboard when rule execution fails' {

@@ -37,15 +37,19 @@ after a valid report has been generated.
 The `psrule-results` artifact retains HTML, Markdown, SARIF, and collection status
 when available. The separate `AzureDevOpsRawData` artifact retains the original JSON
 export with project subfolders, including partial exports after collection failure.
-Strict collection prevents incomplete inputs from reaching rule evaluation. Download the artifact
+Available exports are evaluated even when collection is incomplete. HTML and Markdown
+show affected projects, collectors, statuses, and reason codes; totals cover only
+the available evaluated data. Collection gaps finish as `SucceededWithIssues` (yellow). Download the artifact
 and open `psrule-dashboard.html` in a browser to use the dashboard offline;
 all styles, scripts, and report data are embedded in the file. Readers need
 permission to view the pipeline run and its artifacts, rather than additional
 Log Analytics access. Downloaded reports contain assessment findings, so share
 them with the same audience as the run. Reports follow the pipeline's run and
 artifact retention policy; retain the run or download its artifact to keep a
-snapshot longer. Collection and execution errors fail the run; rule violations are findings.
-An assessment with no results or rule execution errors produces no dashboard.
+snapshot longer. Authentication, rule execution, report generation, and artifact publication failures
+fail the run; rule violations are findings. With no usable inputs or results, a
+diagnostic dashboard reports zero evaluated checkpoints and the run finishes yellow.
+SARIF is retained only when evaluation produces results.
 
 From this repository, run the offline PowerShell tests with
 `Invoke-Pester ./tests -Output Detailed`. For browser checks, install Playwright

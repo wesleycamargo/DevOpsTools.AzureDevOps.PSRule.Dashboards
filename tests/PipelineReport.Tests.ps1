@@ -82,8 +82,22 @@ Describe 'Pipeline assessment report' {
         $summary | Should -Match '\| Rule\\\|with newline \| 2 \|'
     }
 
-    It 'rejects an empty assessment instead of producing success-looking reports' {
-        { & $scriptPath -Results @() -Organization organization -RunId organization/42 -OutputDirectory "$TestDrive/empty" } | Should -Throw
-        Test-Path "$TestDrive/empty/psrule-dashboard.html" | Should -BeFalse
+    It 'renders empty data and safely includes collection diagnostics' {
+        $status = @{ Status = 'Unavailable'; ProjectDiscovery = @{ Command = 'Get-AzDevOpsProject'; Status = 'Failed'; ReasonCodes = @('ProjectDiscoveryFailed') }; Projects = @(
+            @{ Project = '<script>|project'; Status = 'Unavailable'; Collectors = @(@{ Command = 'billing'; Status = 'Failed'; ReasonCodes = @('CollectorFailed') }) }
+        ) }
+        & $scriptPath -Results @() -CollectionStatus $status -Organization organization -RunId organization/42 -OutputDirectory "$TestDrive/empty"
+        $summary = Get-Content "$TestDrive/empty/psrule-summary.md" -Raw
+        $summary | Should -Match 'Incomplete collection'
+        $summary | Should -Match 'No assessment results available'
+        $summary | Should -Match '\| Total checkpoints \| 0 \|'
+        $summary | Should -Match 'ProjectDiscoveryFailed'
+        $summary | Should -Not -Match '<script>|No failures'
+        $html = Get-Content "$TestDrive/empty/psrule-dashboard.html" -Raw
+        $data = ([regex]::Match($html, '<script id="report-data" type="application/json">(.*?)</script>', 'Singleline')).Groups[1].Value | ConvertFrom-Json
+        $data.results.Count | Should -Be 0
+        $data.collectionIncomplete | Should -BeTrue
+        $data.collectionIssues.Count | Should -Be 3
+        $data.collectionIssues[2].project | Should -Be '<script>|project'
     }
 }

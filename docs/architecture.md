@@ -12,7 +12,7 @@ Schedule / manual -> Check out dashboards + rules -> Export organization
                                                        |          |
                                                        |          +-> Raw artifact
                                                        v
-                                                Strict completeness
+                                                Collection diagnostics
                                                        |
                                                        v
                                                 Evaluate rules
@@ -30,9 +30,18 @@ resource deployment, Monitor ingestion, or Log Analytics query is part of the ru
 
 The script resets its dedicated `raw-export` and `reports` staging directories
 before each attempt, so reused agents cannot contribute stale results. Collection
-status is outside the resource input directory. Strict collection failure prevents
-evaluation. Zero results and execution errors prevent dashboard generation. Rule
-violations remain findings, rather than infrastructure failures.
+status is outside the resource input directory. Available exports are evaluated
+without the module's optional `-Strict` policy. Recorded collection errors become
+escaped pipeline warnings; HTML and Markdown list affected projects, collectors,
+statuses, and reason codes. Missing exports never create passing results. Totals
+cover only available evaluated data.
+
+Incomplete collection and absent assessment results finish as `SucceededWithIssues`
+(yellow) after report generation. No inputs or zero results produce a diagnostic
+dashboard with zero evaluated checkpoints and no compliance conclusion. SARIF is
+retained only when evaluation produces results. Authentication, terminating export
+errors, rule execution, report writing, and artifact publication failures remain
+red. Rule violations remain findings, rather than infrastructure failures.
 
 ## Report interfaces
 
