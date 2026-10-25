@@ -6,7 +6,7 @@
 entry point. It runs manually or daily at 06:00 UTC on `main`, with push and PR
 triggers disabled. `AI-Pool` executes the job; `psrule-azure` supplies the Azure
 DevOps token. Only dashboard source is checked out. The assessment task installs
-`DevOpsTools.AzureDevOps.PSRule` 0.2.0 from PowerShell Gallery and imports that
+`DevOpsTools.AzureDevOps.PSRule` 0.2.1 from PowerShell Gallery and imports that
 exact version, with PSRule 2.9.0. The module repository is not accessed.
 
 ```text
