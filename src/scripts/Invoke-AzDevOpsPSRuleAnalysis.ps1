@@ -144,7 +144,7 @@ Process {
     $option = New-PSRuleOption -OutputAs Detail
     try {
         $invokeParams = @{
-            Module        = @('DevOpsTools.AzureDevOps.Assessment', 'PSRule.Monitor')
+            Module        = @('DevOpsTools.AzureDevOps.PSRule', 'PSRule.Monitor')
             InputPath     = $validJsonFiles
             As            = 'Detail'
             OutputPath    = (Join-Path $ReportOutputPath 'psrule-results.sarif')
@@ -203,10 +203,10 @@ Process {
     if ($env:SYSTEM_TEAMPROJECT -and $env:SYSTEM_DEFINITIONID) {
         $null = & "$PSScriptRoot/Get-AssessmentHistory.ps1" -Organization $runOrganization -Project $env:SYSTEM_TEAMPROJECT -DefinitionId ([int]$env:SYSTEM_DEFINITIONID) -Branch $env:BUILD_SOURCEBRANCH -CurrentBuildId ([int]$env:BUILD_BUILDID) -OutputPath $historyPath
     }
-    $module = Get-Module DevOpsTools.AzureDevOps.Assessment | Select-Object -First 1
-    $configuration = Get-AssessmentConfiguration -ModuleManifestPath (Join-Path $module.ModuleBase 'DevOpsTools.AzureDevOps.Assessment.psd1') -ModuleName 'DevOpsTools.AzureDevOps.Assessment' -Baseline 'ModuleDefault' -Option $option -PSRuleVersion ([string](Get-Module PSRule).Version)
+    $module = Get-Module DevOpsTools.AzureDevOps.PSRule | Select-Object -First 1
+    $configuration = Get-AssessmentConfiguration -ModuleManifestPath (Join-Path $module.ModuleBase 'DevOpsTools.AzureDevOps.PSRule.psd1') -ModuleName 'DevOpsTools.AzureDevOps.PSRule' -Baseline 'ModuleDefault' -Option $option -PSRuleVersion ([string](Get-Module PSRule).Version)
     $evaluationStatus = @{ Status = $(if ($evaluationFailed -or @($result | Where-Object Outcome -eq 'Error').Count) { 'Failed' } else { 'Completed' }) }
-    & "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Evaluation $evaluationStatus -Configuration $configuration -Results @($result) -Organization $runOrganization -RunId $runId -OutputDirectory $ReportOutputPath -Collection $collection -ModuleName 'DevOpsTools.AzureDevOps.Assessment' -ModuleVersion ([string]$module.Version) -RuleHelpPath (Join-Path $module.ModuleBase 'en') -HistoryPath $historyPath
+    & "$PSScriptRoot/Export-PSRulePipelineReport.ps1" -Evaluation $evaluationStatus -Configuration $configuration -Results @($result) -Organization $runOrganization -RunId $runId -OutputDirectory $ReportOutputPath -Collection $collection -ModuleName 'DevOpsTools.AzureDevOps.PSRule' -ModuleVersion ([string]$module.Version) -RuleHelpPath (Join-Path $module.ModuleBase 'en') -HistoryPath $historyPath
     Write-Host "##vso[task.uploadsummary]$(Join-Path $ReportOutputPath 'psrule-summary.md')"
     Write-Host '##vso[task.setvariable variable=PSRuleReportReady]true'
     if ($evaluationFailed -or @($result | Where-Object Outcome -eq 'Error').Count) { throw 'Assessment execution errors; reports retained.' }

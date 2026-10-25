@@ -13,7 +13,7 @@ SARIF and the existing Monitor publishers remain supported.
 ## Current source-backed pipeline
 
 The maintained entry point is `azure-pipelines/run-assessment.yml`, using the
-pinned Gallery module `DevOpsTools.AzureDevOps.Assessment`. It presents the
+pinned Gallery module `DevOpsTools.AzureDevOps.PSRule`. It presents the
 [three-tab Project Health report](project-health.md), with organization collection
 diagnostics retained in HTML and Markdown. `System.AccessToken` is mapped for
 read-only history from the same pipeline/branch. Current reports and snapshots

@@ -1,7 +1,7 @@
 BeforeAll {
     $assessmentPath = (Resolve-Path "$PSScriptRoot/../src/scripts/Invoke-PSRuleAssessment.ps1").Path
     function Invoke-TestAssessment {
-        param([string]$Scenario, [string]$OutputDirectory, [string]$ModuleVersion = '0.1.0')
+        param([string]$Scenario, [string]$OutputDirectory, [string]$ModuleVersion = '0.2.0')
         # Isolate collector/PSRule/Azure adapters while running the real orchestration and report writer.
         $runner = [powershell]::Create()
         $harness = {
@@ -20,7 +20,7 @@ BeforeAll {
                 $env:BUILD_ARTIFACTSTAGINGDIRECTORY = $OutputDirectory
                 New-Item $OutputDirectory -ItemType Directory -Force | Out-Null
                 $moduleDirectory = New-Item (Join-Path $OutputDirectory 'module') -ItemType Directory -Force
-                '@{ ModuleVersion = "0.1.0" }' | Set-Content (Join-Path $moduleDirectory.FullName 'DevOpsTools.AzureDevOps.Assessment.psd1')
+                '@{ ModuleVersion = "0.2.0" }' | Set-Content (Join-Path $moduleDirectory.FullName 'DevOpsTools.AzureDevOps.PSRule.psd1')
                 function Get-Module { [pscustomobject]@{ Version = [version]'2.9.0'; ModuleBase = $moduleDirectory.FullName } }
                 $moduleCalls = [System.Collections.Generic.List[object]]::new()
                 function Install-Module {
@@ -31,7 +31,7 @@ BeforeAll {
                 function Import-Module {
                     param($Name, $RequiredVersion, [switch]$Force)
                     $moduleCalls.Add([pscustomobject]@{ Operation = 'Import'; Name = $Name; RequiredVersion = $RequiredVersion })
-                    if ($Name -eq 'DevOpsTools.AzureDevOps.Assessment' -and $Scenario -eq 'ModuleImportError') { throw 'Module import failed.' }
+                    if ($Name -eq 'DevOpsTools.AzureDevOps.PSRule' -and $Scenario -eq 'ModuleImportError') { throw 'Module import failed.' }
                 }
                 function Connect-AzDevOps { if ($Scenario -eq 'AuthenticationError') { throw 'Authentication failed.' } }
                 function Export-AzDevOpsOrganizationRuleData {
@@ -59,7 +59,7 @@ BeforeAll {
                 function New-PSRuleOption { }
                 function Assert-PSRule {
                     param($ResultVariable, $OutputPath, $InputPath, $Module)
-                    if ($Module -ne 'DevOpsTools.AzureDevOps.Assessment') { throw "Unexpected assessment module: $Module" }
+                    if ($Module -ne 'DevOpsTools.AzureDevOps.PSRule') { throw "Unexpected assessment module: $Module" }
                     if ($Scenario -eq 'NoInputs') { throw 'Empty inputs reached evaluation.' }
                     if ($Scenario -eq 'ReportError') { New-Item (Join-Path (Split-Path $OutputPath) 'psrule-dashboard.html') -ItemType Directory | Out-Null }
                     if (@($InputPath).Count -ne 1 -or $InputPath[0] -notmatch 'input.json$') { throw 'Unexpected assessment inputs.' }
@@ -116,13 +116,13 @@ Describe 'Assessment report integration' {
         $assessment.Error | Should -BeNullOrEmpty
         $installation = @($assessment.ModuleCalls | Where-Object Operation -EQ 'Install')
         $installation.Count | Should -Be 1
-        $installation[0].Name | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
-        $installation[0].RequiredVersion | Should -Be '0.1.0'
+        $installation[0].Name | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
+        $installation[0].RequiredVersion | Should -Be '0.2.0'
         $installation[0].Repository | Should -Be 'PSGallery'
         $installation[0].Scope | Should -Be 'CurrentUser'
         $installation[0].AllowClobber | Should -BeTrue
-        @($assessment.ModuleCalls | Where-Object Operation -EQ 'Import').Name | Should -Be @('PSRule', 'DevOpsTools.AzureDevOps.Assessment')
-        ($assessment.ModuleCalls | Where-Object { $_.Operation -eq 'Import' -and $_.Name -eq 'DevOpsTools.AzureDevOps.Assessment' }).RequiredVersion | Should -Be '0.1.0'
+        @($assessment.ModuleCalls | Where-Object Operation -EQ 'Import').Name | Should -Be @('PSRule', 'DevOpsTools.AzureDevOps.PSRule')
+        ($assessment.ModuleCalls | Where-Object { $_.Operation -eq 'Import' -and $_.Name -eq 'DevOpsTools.AzureDevOps.PSRule' }).RequiredVersion | Should -Be '0.2.0'
         foreach ($file in @('psrule-dashboard.html', 'psrule-summary.md', 'psrule-results.sarif', 'collection-status.json', 'assessment-snapshot.json', 'assessment-history.json')) {
             Test-Path "$output/reports/$file" | Should -BeTrue
         }
@@ -138,14 +138,14 @@ Describe 'Assessment report integration' {
         $assessment = Invoke-TestAssessment Success $output
         $assessment.Error | Should -BeNullOrEmpty
         $snapshot = Get-Content "$output/reports/assessment-snapshot.json" -Raw | ConvertFrom-Json
-        $snapshot.module.name | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
-        $snapshot.module.version | Should -Be '0.1.0'
-        $snapshot.configuration.ruleset | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
+        $snapshot.module.name | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
+        $snapshot.module.version | Should -Be '0.2.0'
+        $snapshot.configuration.ruleset | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
         $snapshot.configuration.rulesetHash | Should -Match '^[a-f0-9]{64}$'
         $snapshot.evaluation.Status | Should -Be 'Completed'
         $html = Get-Content "$output/reports/psrule-dashboard.html" -Raw
         $html | Should -Match 'Project Health &amp; Compliance'
-        $html | Should -Match 'DevOpsTools.AzureDevOps.Assessment 0.1.0'
+        $html | Should -Match 'DevOpsTools.AzureDevOps.PSRule 0.2.0'
         $html | Should -Match 'Historical authentication unavailable'
     }
 
@@ -163,17 +163,17 @@ Describe 'Assessment report integration' {
         $data.runId | Should -Be 'test-org/43'
         $data.history.snapshots.Count | Should -Be 1
         $data.history.snapshots[0].runId | Should -Be 'test-org/42'
-        $data.history.snapshots[0].module.name | Should -Be 'DevOpsTools.AzureDevOps.Assessment'
+        $data.history.snapshots[0].module.name | Should -Be 'DevOpsTools.AzureDevOps.PSRule'
         $data.history.snapshots[0].configurationHash | Should -Be $data.configurationHash
         $html | Should -Not -Match 'fixture-history-token'
     }
 
     It 'installs and imports the explicitly requested package version' {
-        $assessment = Invoke-TestAssessment Success "$TestDrive/version" -ModuleVersion '0.2.0'
+        $assessment = Invoke-TestAssessment Success "$TestDrive/version" -ModuleVersion '0.3.0'
         $assessment.Error | Should -BeNullOrEmpty
-        $calls = @($assessment.ModuleCalls | Where-Object Name -EQ 'DevOpsTools.AzureDevOps.Assessment')
+        $calls = @($assessment.ModuleCalls | Where-Object Name -EQ 'DevOpsTools.AzureDevOps.PSRule')
         $calls.Count | Should -Be 2
-        $calls.RequiredVersion | Should -Be @('0.2.0', '0.2.0')
+        $calls.RequiredVersion | Should -Be @('0.3.0', '0.3.0')
     }
 
     It 'evaluates partial exports with billing and security gaps and publishes a yellow dashboard' {

@@ -1,4 +1,4 @@
-# DevOpsTools.AzureDevOps.Assessment dashboards
+# DevOpsTools.AzureDevOps.PSRule.Dashboards
 
 ## Overview
 
@@ -14,9 +14,9 @@ and `github.com_wesleycamargo` for checking out this dashboard repository.
 The service principal needs read access to the assessed organization and projects.
 No workspace, ingestion rule, shared workspace key, or Azure deployment is required.
 
-The pipeline installs `DevOpsTools.AzureDevOps.Assessment` **0.1.0** from
+The pipeline installs `DevOpsTools.AzureDevOps.PSRule` **0.2.0** from
 PowerShell Gallery and imports that exact version alongside PSRule **2.9.0**.
-Only dashboard source is checked out; the private module repository is outside
+Only dashboard source is checked out; the module repository is outside
 the assessment execution path. To adopt a later package release, update
 `-ModuleVersion` in `azure-pipelines/run-assessment.yml` after publishing it.
 Installation or import failures stop the assessment and fail the run.

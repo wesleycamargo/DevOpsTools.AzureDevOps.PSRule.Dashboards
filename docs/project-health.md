@@ -9,7 +9,7 @@ tabs, shared filters, sorting, comparisons and the drawer.
 ## Current pipeline integration
 
 `azure-pipelines/run-assessment.yml` generates this report using the pinned
-`DevOpsTools.AzureDevOps.Assessment` Gallery package. It publishes the
+`DevOpsTools.AzureDevOps.PSRule` Gallery package. It publishes the
 **Project Health & Compliance** HTML tab, Markdown, snapshots and raw exports.
 It does not invoke the legacy workbook publisher described in the historical
 validation sections below. Organization collection gaps are visible in all tabs

@@ -8,7 +8,7 @@ BeforeAll {
             New-Item $Output -ItemType Directory -Force | Out-Null
             '{}' | Set-Content "$Output/input.json"
             @{Status='Complete';Projects=@()} | ConvertTo-Json | Set-Content (Join-Path (Split-Path $Output) 'collection-status.json')
-            '@{ModuleVersion="1.0"}' | Set-Content (Join-Path $Output 'DevOpsTools.AzureDevOps.Assessment.psd1')
+            '@{ModuleVersion="1.0"}' | Set-Content (Join-Path $Output 'DevOpsTools.AzureDevOps.PSRule.psd1')
             function New-PSRuleOption { @{ Configuration=@{threshold=3} } }
             function Import-Module { }
             function Get-Module { [pscustomobject]@{Version='1.0';ModuleBase=$Output} }
