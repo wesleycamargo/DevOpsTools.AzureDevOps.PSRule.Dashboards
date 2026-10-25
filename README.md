@@ -1,4 +1,4 @@
-# DevOpsTools.AzureDevOps.PSRule dashboards
+# DevOpsTools.AzureDevOps.PSRule.Dashboards
 
 ## Overview
 
